@@ -1,0 +1,70 @@
+name: Build and Package Lambda
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_VERSION: '8.0.x'
+      PROJECT_PATH: 'src/DynamoDBProcessor/DynamoDBProcessor.csproj'
+      BUILD_DIR: 'src/DynamoDBProcessor/bin/Release/net8.0/publish/'
+      PACKAGE_DIR: 'build'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Lint C#
+        run: dotnet format --verify-no-changes
+
+      - name: Lint Terraform
+        uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Build Lambda
+        run: dotnet publish ${{ env.PROJECT_PATH }} -c Release -o ${{ env.BUILD_DIR }}
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '<Version>' src/DynamoDBProcessor/DynamoDBProcessor.csproj | sed -E 's/.*<Version>(.*)<\/Version>.*/\1/')
+          if [ -z "$VERSION" ]; then VERSION="0.1.0"; fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Compute source hash
+        id: hash
+        run: |
+          HASH=$(git rev-parse --short HEAD)
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Prepare build output
+        run: |
+          mkdir -p ${{ env.PACKAGE_DIR }}
+          cp -r ${{ env.BUILD_DIR }} ./${{ env.PACKAGE_DIR }}/publish
+          cp -r terraform ./${{ env.PACKAGE_DIR }}/terraform
+
+      - name: Zip build output
+        run: |
+          ZIP_NAME="DynamoDBProcessor-${{ steps.version.outputs.version }}-${{ steps.hash.outputs.hash }}.zip"
+          cd ${{ env.PACKAGE_DIR }}
+          zip -r ../$ZIP_NAME .
+        shell: bash
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-package
+          path: DynamoDBProcessor-*.zip 

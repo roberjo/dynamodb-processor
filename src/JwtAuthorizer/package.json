@@ -1,0 +1,25 @@
+{
+  "name": "jwt-authorizer",
+  "version": "1.0.0",
+  "description": "JWT Authorizer for API Gateway with optimized cold starts",
+  "main": "index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "clean": "rimraf dist build",
+    "package": "npm run build && cd dist && zip -r ../build/JwtAuthorizer.zip .",
+    "test": "node test.js",
+    "deploy:dev": "npm run package && aws lambda update-function-code --function-name jwt-authorizer-dev --zip-file fileb://build/JwtAuthorizer.zip",
+    "deploy:staging": "npm run package && aws lambda update-function-code --function-name jwt-authorizer-staging --zip-file fileb://build/JwtAuthorizer.zip",
+    "deploy:prod": "npm run package && aws lambda update-function-code --function-name jwt-authorizer-prod --zip-file fileb://build/JwtAuthorizer.zip"
+  },
+  "dependencies": {
+    "jose": "^5.2.2"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.5"
+  }
+} 

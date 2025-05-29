@@ -1,0 +1,365 @@
+name: Deploy Lambda
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: 'staging'
+      rollback:
+        description: 'Rollback to previous version'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  TF_WORKSPACE_DEV: dynamodb-processor-dev
+  TF_WORKSPACE_STAGING: dynamodb-processor-staging
+  TF_WORKSPACE_PROD: dynamodb-processor-prod
+
+jobs:
+  notify-start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Teams - Deployment Started
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          body: |
+            {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "Bolder",
+                        "text": "🚀 Deployment Started"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Environment: ${{ github.event.inputs.environment || 'dev' }}",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Repository: ${{ github.repository }}",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Commit: ${{ github.sha }}",
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+  deploy-dev:
+    needs: notify-start
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-package
+          path: build
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: |
+          cd build/terraform/environments/dev
+          terraform init
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd build/terraform/environments/dev
+          terraform plan -out=tfplan
+          echo "plan_output=$(terraform show -json tfplan | base64 -w 0)" >> $GITHUB_OUTPUT
+
+      - name: Terraform Apply
+        if: success()
+        run: |
+          cd build/terraform/environments/dev
+          terraform apply -auto-approve tfplan
+
+      - name: Notify Teams - Deployment Result
+        if: always()
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          body: |
+            {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "Bolder",
+                        "text": "${{ success() && '✅ Deployment Succeeded' || '❌ Deployment Failed' }}"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Environment: dev",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Repository: ${{ github.repository }}",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Commit: ${{ github.sha }}",
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+  deploy-staging:
+    needs: notify-start
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-package
+          path: build
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: |
+          cd build/terraform/environments/staging
+          terraform init
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd build/terraform/environments/staging
+          terraform plan -out=tfplan
+          echo "plan_output=$(terraform show -json tfplan | base64 -w 0)" >> $GITHUB_OUTPUT
+
+      - name: Terraform Apply
+        if: success()
+        run: |
+          cd build/terraform/environments/staging
+          terraform apply -auto-approve tfplan
+
+      - name: Notify Teams - Deployment Result
+        if: always()
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          body: |
+            {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "Bolder",
+                        "text": "${{ success() && '✅ Deployment Succeeded' || '❌ Deployment Failed' }}"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Environment: staging",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Repository: ${{ github.repository }}",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Commit: ${{ github.sha }}",
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+  deploy-production:
+    needs: notify-start
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-package
+          path: build
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: |
+          cd build/terraform/environments/prod
+          terraform init
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd build/terraform/environments/prod
+          terraform plan -out=tfplan
+          echo "plan_output=$(terraform show -json tfplan | base64 -w 0)" >> $GITHUB_OUTPUT
+
+      - name: Terraform Apply
+        if: success()
+        run: |
+          cd build/terraform/environments/prod
+          terraform apply -auto-approve tfplan
+
+      - name: Notify Teams - Deployment Result
+        if: always()
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          body: |
+            {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "Bolder",
+                        "text": "${{ success() && '✅ Deployment Succeeded' || '❌ Deployment Failed' }}"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Environment: production",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Repository: ${{ github.repository }}",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Commit: ${{ github.sha }}",
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+  rollback:
+    needs: [deploy-dev, deploy-staging, deploy-production]
+    if: failure() || github.event.inputs.rollback == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'development' }}
+    steps:
+      - name: Download previous build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-package
+          path: build
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: |
+          cd build/terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+          terraform init
+
+      - name: Terraform Plan Rollback
+        run: |
+          cd build/terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+          terraform plan -out=tfplan
+
+      - name: Terraform Apply Rollback
+        run: |
+          cd build/terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+          terraform apply -auto-approve tfplan
+
+      - name: Notify Teams - Rollback Result
+        if: always()
+        uses: joelwmale/webhook-action@master
+        with:
+          url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          body: |
+            {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "size": "Medium",
+                        "weight": "Bolder",
+                        "text": "${{ success() && '✅ Rollback Succeeded' || '❌ Rollback Failed' }}"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Environment: ${{ github.event.inputs.environment || 'dev' }}",
+                        "wrap": true
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "Repository: ${{ github.repository }}",
+                        "wrap": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            } 
