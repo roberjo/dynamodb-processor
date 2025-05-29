@@ -1,0 +1,132 @@
+environments:
+  - environment:
+      name: Staging
+      identifier: staging
+      type: PreProduction
+      orgIdentifier: default
+      projectIdentifier: dynamodb_processor
+      tags: {}
+      variables:
+        - name: DYNAMODB_TABLE
+          type: String
+          value: dynamodb-processor-staging
+        - name: API_GATEWAY_ID
+          type: String
+          value: <+secrets.getValue("api_gateway_id_staging")>
+        - name: LOG_LEVEL
+          type: String
+          value: Debug
+      overrides:
+        manifests:
+          - manifest:
+              identifier: serverless_manifest
+              type: ServerlessAwsLambda
+              spec:
+                store:
+                  type: Github
+                  spec:
+                    connectorRef: github_connector
+                    gitFetchType: Branch
+                    paths:
+                      - serverless.staging.yml
+                    repoName: dynamodb-processor
+                    branch: main
+      yaml: |-
+        environment:
+          name: Staging
+          identifier: staging
+          type: PreProduction
+          orgIdentifier: default
+          projectIdentifier: dynamodb_processor
+          tags: {}
+          variables:
+            - name: DYNAMODB_TABLE
+              type: String
+              value: dynamodb-processor-staging
+            - name: API_GATEWAY_ID
+              type: String
+              value: <+secrets.getValue("api_gateway_id_staging")>
+            - name: LOG_LEVEL
+              type: String
+              value: Debug
+          overrides:
+            manifests:
+              - manifest:
+                  identifier: serverless_manifest
+                  type: ServerlessAwsLambda
+                  spec:
+                    store:
+                      type: Github
+                      spec:
+                        connectorRef: github_connector
+                        gitFetchType: Branch
+                        paths:
+                          - serverless.staging.yml
+                        repoName: dynamodb-processor
+                        branch: main
+
+  - environment:
+      name: Production
+      identifier: production
+      type: Production
+      orgIdentifier: default
+      projectIdentifier: dynamodb_processor
+      tags: {}
+      variables:
+        - name: DYNAMODB_TABLE
+          type: String
+          value: dynamodb-processor-prod
+        - name: API_GATEWAY_ID
+          type: String
+          value: <+secrets.getValue("api_gateway_id_prod")>
+        - name: LOG_LEVEL
+          type: String
+          value: Info
+      overrides:
+        manifests:
+          - manifest:
+              identifier: serverless_manifest
+              type: ServerlessAwsLambda
+              spec:
+                store:
+                  type: Github
+                  spec:
+                    connectorRef: github_connector
+                    gitFetchType: Branch
+                    paths:
+                      - serverless.prod.yml
+                    repoName: dynamodb-processor
+                    branch: main
+      yaml: |-
+        environment:
+          name: Production
+          identifier: production
+          type: Production
+          orgIdentifier: default
+          projectIdentifier: dynamodb_processor
+          tags: {}
+          variables:
+            - name: DYNAMODB_TABLE
+              type: String
+              value: dynamodb-processor-prod
+            - name: API_GATEWAY_ID
+              type: String
+              value: <+secrets.getValue("api_gateway_id_prod")>
+            - name: LOG_LEVEL
+              type: String
+              value: Info
+          overrides:
+            manifests:
+              - manifest:
+                  identifier: serverless_manifest
+                  type: ServerlessAwsLambda
+                  spec:
+                    store:
+                      type: Github
+                      spec:
+                        connectorRef: github_connector
+                        gitFetchType: Branch
+                        paths:
+                          - serverless.prod.yml
+                        repoName: dynamodb-processor
+                        branch: main 

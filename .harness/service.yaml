@@ -1,0 +1,56 @@
+service:
+  name: DynamoDB Processor Service
+  identifier: dynamodb_processor_service
+  serviceDefinition:
+    type: ServerlessAwsLambda
+    spec:
+      manifests:
+        - manifest:
+            identifier: serverless_manifest
+            type: ServerlessAwsLambda
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: github_connector
+                  gitFetchType: Branch
+                  paths:
+                    - serverless.yml
+                  repoName: dynamodb-processor
+                  branch: main
+      artifacts:
+        primary:
+          primaryArtifactRef: <+input>
+          sources:
+            - spec:
+                connectorRef: github_connector
+                imagePath: dynamodb-processor
+                tag: <+input>
+              identifier: dynamodb_processor_artifact
+              type: DockerRegistry
+      variables:
+        - name: AWS_REGION
+          type: String
+          value: us-east-1
+        - name: ENVIRONMENT
+          type: String
+          value: <+env.name>
+        - name: DYNAMODB_TABLE
+          type: String
+          value: <+env.variables.DYNAMODB_TABLE>
+        - name: API_GATEWAY_ID
+          type: String
+          value: <+env.variables.API_GATEWAY_ID>
+      configFiles:
+        - configFile:
+            identifier: config
+            spec:
+              store:
+                type: Github
+                spec:
+                  connectorRef: github_connector
+                  gitFetchType: Branch
+                  paths:
+                    - config/appsettings.json
+                  repoName: dynamodb-processor
+                  branch: main 

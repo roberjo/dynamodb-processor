@@ -1,0 +1,124 @@
+pipeline:
+  name: DynamoDB Processor Pipeline
+  identifier: dynamodb_processor_pipeline
+  projectIdentifier: dynamodb_processor
+  orgIdentifier: default
+  tags: {}
+  stages:
+    - stage:
+        name: Infrastructure
+        identifier: Infrastructure
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Terraform Plan
+                  identifier: Terraform_Plan
+                  spec:
+                    shell: Sh
+                    command: |
+                      cd terraform
+                      terraform init
+                      terraform plan -out=tfplan
+                    privileged: false
+              - step:
+                  type: Run
+                  name: Terraform Apply
+                  identifier: Terraform_Apply
+                  spec:
+                    shell: Sh
+                    command: |
+                      cd terraform
+                      terraform apply -auto-approve tfplan
+                    privileged: false
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+    - stage:
+        name: Build and Test
+        identifier: Build_and_Test
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Build
+                  identifier: Build
+                  spec:
+                    shell: Sh
+                    command: |
+                      dotnet build src/DynamoDBProcessor/DynamoDBProcessor.csproj
+                    privileged: false
+              - step:
+                  type: Run
+                  name: Test
+                  identifier: Test
+                  spec:
+                    shell: Sh
+                    command: |
+                      dotnet test src/DynamoDBProcessor/DynamoDBProcessor.csproj
+                    privileged: false
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+    - stage:
+        name: Deploy to Staging
+        identifier: Deploy_to_Staging
+        type: Deployment
+        spec:
+          deploymentType: ServerlessAwsLambda
+          service:
+            serviceRef: dynamodb_processor_service
+          environment:
+            environmentRef: staging
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: staging_infra
+          execution:
+            steps:
+              - step:
+                  type: ServerlessAwsLambdaDeploy
+                  name: Deploy Lambda
+                  identifier: Deploy_Lambda
+                  spec:
+                    commandOptions: --region us-east-1
+          tags: {}
+    - stage:
+        name: Deploy to Production
+        identifier: Deploy_to_Production
+        type: Deployment
+        spec:
+          deploymentType: ServerlessAwsLambda
+          service:
+            serviceRef: dynamodb_processor_service
+          environment:
+            environmentRef: production
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: production_infra
+          execution:
+            steps:
+              - step:
+                  type: ServerlessAwsLambdaDeploy
+                  name: Deploy Lambda
+                  identifier: Deploy_Lambda
+                  spec:
+                    commandOptions: --region us-east-1
+          tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: github_connector
+        repoName: dynamodb-processor
+        build: <+input> 
