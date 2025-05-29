@@ -163,4 +163,32 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 For support, please contact:
 - System Administrator: admin@example.com
 - Database Administrator: dba@example.com
-- Security Team: security@example.com 
+- Security Team: security@example.com
+
+## Visual Documentation
+
+The project includes comprehensive visual documentation using Mermaid diagrams. These diagrams can be found in the `docs/diagrams.md` file and include:
+
+- System Architecture
+- Request Flow
+- Monitoring Architecture
+- Testing Architecture
+- Backup and Recovery Flow
+- Security Architecture
+- Development Workflow
+- Cache Architecture
+- Error Handling Flow
+- Deployment Architecture
+
+To view these diagrams:
+1. Open the `docs/diagrams.md` file
+2. Use a Markdown viewer that supports Mermaid diagrams (like GitHub, VS Code with Mermaid extension, or [Mermaid Live Editor](https://mermaid.live))
+
+The diagrams provide visual representations of:
+- Component interactions
+- Data flows
+- Process workflows
+- System architecture
+- Security measures
+- Testing strategies
+- Deployment processes 
