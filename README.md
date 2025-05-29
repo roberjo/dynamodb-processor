@@ -1,179 +1,166 @@
 # DynamoDB Query Processor
 
-This project implements an AWS Lambda function using ASP.NET Core 8 that processes queries against a DynamoDB table with the following structure:
-
-## Table Design
-
-- **Partition Key (PK)**: `${system_id}#${year_month_day}`
-- **Sort Key (SK)**: `${timestamp}#${audit_id}`
-- **GSI1**:
-  - Partition Key: `GS1_PK #{user_id}`
-  - Sort Key: `GS1_SK #{timestamp}#{audit_id}`
-- **GSI2**:
-  - Partition Key: `GSI2_PK #{resource_id}`
-  - Sort Key: `GSI2_SK #{timestamp}#{audit_id}`
+A production-ready AWS Lambda function for efficiently querying audit records from DynamoDB with advanced features like caching, rate limiting, and monitoring.
 
 ## Features
 
-- Query processing with multiple filter criteria
-- Pagination support
-- Input validation
-- AWS API Gateway integration
-- DynamoDB query optimization
+- **Efficient Querying**: Optimized DynamoDB queries using GSI (Global Secondary Index)
+- **Caching**: In-memory caching for frequently accessed queries
+- **Rate Limiting**: IP-based rate limiting to prevent abuse
+- **Security**: API key authentication and security headers
+- **Monitoring**: Comprehensive CloudWatch metrics and logging
+- **High Availability**: Multi-AZ deployment with cross-region replication
+- **Documentation**: Swagger/OpenAPI documentation
+- **Testing**: Unit and integration tests with high coverage
 
-## Project Structure
+## Architecture
 
 ```
-src/
-├── DynamoDBProcessor/
-│   ├── Models/
-│   │   ├── QueryRequest.cs
-│   │   ├── QueryResponse.cs
-│   │   └── AuditRecord.cs
-│   ├── Services/
-│   │   ├── IDynamoDBService.cs
-│   │   └── DynamoDBService.cs
-│   ├── Validators/
-│   │   └── QueryRequestValidator.cs
-│   ├── Function.cs
-│   └── Program.cs
-terraform/
-├── modules/
-│   └── lambda/
-├── environments/
-│   ├── dev/
-│   ├── staging/
-│   └── prod/
-.github/
-└── workflows/
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  API Gateway│────▶│   Lambda    │────▶│  DynamoDB   │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │   CloudWatch│
+                    └─────────────┘
 ```
 
-## Infrastructure as Code (Terraform Cloud)
+## Prerequisites
 
-- All infrastructure code is in the `terraform/` directory.
-- Multi-environment support: `terraform/environments/dev`, `staging`, `prod`.
-- Each environment uses its own [Terraform Cloud](https://app.terraform.io/) workspace.
-- Shared modules in `terraform/modules/`.
-
-### Deployment Environments
-
-1. **Development (dev)**
-   - Automatically deployed on merge to main branch
-   - Used for testing and development
-   - Terraform workspace: `dynamodb-processor-dev`
-
-2. **Staging**
-   - Manually triggered deployment
-   - Used for pre-production testing
-   - Terraform workspace: `dynamodb-processor-staging`
-
-3. **Production**
-   - Manually triggered deployment with approval
-   - Used for production workloads
-   - Terraform workspace: `dynamodb-processor-prod`
-
-### Required Secrets
-
-Set these secrets in your GitHub repository:
-- `TF_API_TOKEN`: Terraform Cloud API token for authentication
-
-### Deploying
-
-1. **Automatic Deployment to Dev**
-   - Push to main branch
-   - GitHub Actions will automatically:
-     - Build and package the Lambda
-     - Deploy to dev environment using Terraform
-
-2. **Manual Deployment to Staging/Production**
-   - Go to Actions tab in GitHub
-   - Select "Deploy Lambda" workflow
-   - Click "Run workflow"
-   - Choose environment (staging/production)
-   - For production, additional approval may be required
-
-## CI/CD with GitHub Actions
-
-### Build Process
-- Lints C# and Terraform code
-- Builds and publishes the .NET Lambda
-- Packages the build output and Terraform files
-- Produces a unique zip artifact named with the project version and source hash
-
-### Deployment Process
-- Automatic deployment to dev on merge to main
-- Manual deployment to staging/production with approval
-- Uses Terraform Cloud for infrastructure management
-- Environment-specific configurations and variables
-
-See `.github/workflows/build.yml` and `.github/workflows/deploy.yml` for details.
-
-## API Usage
-
-The Lambda function accepts POST requests with a JSON body containing:
-
-```json
-{
-    "user_id": "string",
-    "start_date": "yyyy-MM-dd",
-    "end_date": "yyyy-MM-dd",
-    "system_id": "string",
-    "resource_id": "string"
-}
-```
-
-The response includes paginated results and a continuation token if more results are available.
-
-## Development Setup
-
-### Prerequisites
-- .NET 8 SDK
-- Visual Studio 2022 or VS Code with C# extensions
+- .NET 8.0 SDK
 - AWS CLI configured with appropriate credentials
-- Docker Desktop (for local DynamoDB)
-- Terraform CLI
+- DynamoDB table with the following schema:
+  - Partition Key: `PK` (String)
+  - Sort Key: `SK` (String)
+  - GSI1: `GS1_PK` (String), `GS1_SK` (String)
+  - GSI2: `GSI2_PK` (String), `GSI2_SK` (String)
 
-### Local Development Environment
+## Getting Started
 
-1. **Clone and Setup**
+1. Clone the repository:
    ```powershell
    git clone https://github.com/yourusername/dynamodb-processor.git
-   Set-Location dynamodb-processor
+   cd dynamodb-processor
    ```
 
-2. **Local DynamoDB Setup**
+2. Install dependencies:
    ```powershell
-   docker run -p 8000:8000 amazon/dynamodb-local
-   ```
-
-3. **Environment Variables**
-   Create a `src/DynamoDBProcessor/appsettings.Development.json`:
-   ```json
-   {
-     "AWS": {
-       "Region": "us-east-1",
-       "DynamoDb": {
-         "ServiceUrl": "http://localhost:8000"
-       }
-     },
-     "Logging": {
-       "LogLevel": {
-         "Default": "Debug",
-         "Microsoft": "Information"
-       }
-     }
-   }
-   ```
-
-4. **Local Development**
-   ```powershell
-   Set-Location src/DynamoDBProcessor
    dotnet restore
-   dotnet build
-   dotnet run
    ```
 
-### Debugging
-- Use Visual Studio's debugger or VS Code's debug configuration
-- Set breakpoints in `Function.cs` and `DynamoDBService.cs`
-- Use AWS Toolkit for VS/VS Code for AWS resource inspection 
+3. Configure environment variables:
+   ```powershell
+   $env:DYNAMODB_TABLE_NAME = "your-table-name"
+   $env:AWS_REGION = "us-east-1"
+   ```
+
+4. Run tests:
+   ```powershell
+   dotnet test
+   ```
+
+5. Deploy to AWS:
+   ```powershell
+   dotnet publish -c Release
+   aws lambda update-function-code --function-name dynamodb-processor --zip-file fileb://publish.zip
+   ```
+
+## API Documentation
+
+The API documentation is available via Swagger UI when running in development mode:
+```
+https://your-api-gateway-url/swagger
+```
+
+### Endpoints
+
+- `POST /api/query`: Query audit records
+  - Request body:
+    ```json
+    {
+      "userId": "string",
+      "startDate": "2024-01-01T00:00:00Z",
+      "endDate": "2024-01-02T00:00:00Z",
+      "systemId": "string",
+      "resourceId": "string"
+    }
+    ```
+
+## Monitoring
+
+The application includes comprehensive monitoring through AWS CloudWatch:
+
+- Query success/error rates
+- Query duration
+- Cache hit/miss rates
+- Records retrieved
+- Lambda function metrics
+- DynamoDB capacity units
+
+View the dashboard in AWS CloudWatch:
+```
+https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=DynamoDBProcessor
+```
+
+## Testing
+
+### Unit Tests
+
+Run unit tests:
+```powershell
+dotnet test src/DynamoDBProcessor.Tests
+```
+
+### Integration Tests
+
+Run integration tests:
+```powershell
+dotnet test src/DynamoDBProcessor.IntegrationTests
+```
+
+## CI/CD
+
+The project uses GitHub Actions for continuous integration and deployment:
+
+- Builds on every push and pull request
+- Runs unit and integration tests
+- Deploys to AWS Lambda on main branch
+- Uploads test results and deployment artifacts
+
+## Backup and Recovery
+
+The project includes a comprehensive backup and disaster recovery plan:
+
+- Continuous DynamoDB backups with point-in-time recovery
+- Daily on-demand backups
+- Cross-region replication
+- Automated recovery procedures
+
+See [Backup and Recovery Plan](docs/backup-recovery.md) for details.
+
+## Security
+
+- API key authentication
+- Security headers middleware
+- Rate limiting
+- Input validation
+- Secure configuration management
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+For support, please contact:
+- System Administrator: admin@example.com
+- Database Administrator: dba@example.com
+- Security Team: security@example.com 

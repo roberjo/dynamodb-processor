@@ -5,20 +5,28 @@
     <Nullable>enable</Nullable>
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="8.0.0" />
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.300.0" />
-    <PackageReference Include="FluentValidation" Version="11.9.0" />
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.0" />
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.300.52" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.300.52" />
+    <PackageReference Include="AWSSDK.CloudWatch" Version="3.7.300.52" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-    <PackageReference Include="Serilog.Sinks.AWSCloudWatch" Version="5.0.0" />
-    <PackageReference Include="Serilog.Enrichers.Environment" Version="2.3.0" />
-    <PackageReference Include="Serilog.Enrichers.Thread" Version="3.1.0" />
-    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="2.3.2" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
     <PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DynamoDBProcessor.Tests\DynamoDBProcessor.Tests.csproj" />
+    <ProjectReference Include="..\DynamoDBProcessor.IntegrationTests\DynamoDBProcessor.IntegrationTests.csproj" />
   </ItemGroup>
 </Project> 

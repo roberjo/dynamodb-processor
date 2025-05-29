@@ -12,6 +12,8 @@ using Amazon.DynamoDBv2;
 using Amazon.CloudWatchLogs;
 using Amazon.CloudWatch;
 using AspNetCoreRateLimit;
+using Microsoft.OpenApi.Models;
+using System.Reflection;
 
 namespace DynamoDBProcessor;
 
@@ -33,9 +35,58 @@ public class Function : APIGatewayProxyFunction
             .ConfigureServices((context, services) =>
             {
                 // Add core ASP.NET Core services
-                services.AddControllers(); // Adds MVC controllers
-                services.AddEndpointsApiExplorer(); // Enables API endpoint discovery
-                services.AddSwaggerGen(); // Adds Swagger/OpenAPI documentation
+                services.AddControllers();
+                services.AddEndpointsApiExplorer();
+                
+                // Configure Swagger/OpenAPI
+                services.AddSwaggerGen(options =>
+                {
+                    options.SwaggerDoc("v1", new OpenApiInfo
+                    {
+                        Title = "DynamoDB Query Processor API",
+                        Version = "v1",
+                        Description = "API for querying audit records from DynamoDB",
+                        Contact = new OpenApiContact
+                        {
+                            Name = "API Support",
+                            Email = "support@example.com"
+                        },
+                        License = new OpenApiLicense
+                        {
+                            Name = "MIT License",
+                            Url = new Uri("https://opensource.org/licenses/MIT")
+                        }
+                    });
+
+                    // Add XML comments
+                    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                    options.IncludeXmlComments(xmlPath);
+
+                    // Add security definitions
+                    options.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+                    {
+                        Type = SecuritySchemeType.ApiKey,
+                        In = ParameterLocation.Header,
+                        Name = "X-API-Key",
+                        Description = "API Key for authentication"
+                    });
+
+                    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                    {
+                        {
+                            new OpenApiSecurityScheme
+                            {
+                                Reference = new OpenApiReference
+                                {
+                                    Type = ReferenceType.SecurityScheme,
+                                    Id = "ApiKey"
+                                }
+                            },
+                            Array.Empty<string>()
+                        }
+                    });
+                });
                 
                 // Register AWS services
                 services.AddAWSService<IAmazonDynamoDB>();
@@ -59,20 +110,18 @@ public class Function : APIGatewayProxyFunction
                 });
                 
                 // Register the DynamoDB service with configuration
-                // This service handles all DynamoDB operations and is scoped per request
                 services.AddScoped<IDynamoDBService>(sp =>
                 {
                     var dynamoDbClient = sp.GetRequiredService<IAmazonDynamoDB>();
                     var cacheService = sp.GetRequiredService<ICacheService>();
                     var metricsService = sp.GetRequiredService<IMetricsService>();
                     var logger = sp.GetRequiredService<ILogger<DynamoDBService>>();
-                    // Get table name from environment variables
                     var tableName = context.Configuration["DYNAMODB_TABLE_NAME"] 
                         ?? throw new InvalidOperationException("DYNAMODB_TABLE_NAME configuration is missing");
                     return new DynamoDBService(dynamoDbClient, cacheService, metricsService, tableName, logger);
                 });
                 
-                // Register FluentValidation validators for request validation
+                // Register FluentValidation validators
                 services.AddScoped<IValidator<Models.QueryRequest>, QueryRequestValidator>();
             })
             .Configure(app =>
@@ -81,11 +130,17 @@ public class Function : APIGatewayProxyFunction
                 if (app.Environment.IsDevelopment())
                 {
                     app.UseSwagger();
-                    app.UseSwaggerUI();
+                    app.UseSwaggerUI(c =>
+                    {
+                        c.SwaggerEndpoint("/swagger/v1/swagger.json", "DynamoDB Query Processor API V1");
+                        c.RoutePrefix = "swagger";
+                        c.DocumentTitle = "DynamoDB Query Processor API Documentation";
+                        c.DefaultModelsExpandDepth(-1); // Hide models section by default
+                    });
                 }
 
                 // Configure middleware pipeline
-                app.UseHttpsRedirection(); // Redirect HTTP to HTTPS
+                app.UseHttpsRedirection();
                 
                 // Add security headers first
                 app.UseMiddleware<SecurityHeadersMiddleware>();
@@ -93,15 +148,15 @@ public class Function : APIGatewayProxyFunction
                 // Add rate limiting
                 app.UseIpRateLimiting();
                 
-                app.UseRouting(); // Enable endpoint routing
-                app.UseAuthorization(); // Enable authorization middleware
+                app.UseRouting();
+                app.UseAuthorization();
                 
                 // Add request/response logging
                 app.UseMiddleware<RequestResponseLoggingMiddleware>();
                 
                 app.UseEndpoints(endpoints =>
                 {
-                    endpoints.MapControllers(); // Map controller endpoints
+                    endpoints.MapControllers();
                 });
             });
     }
