@@ -13,6 +13,8 @@ namespace DynamoDBProcessor.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[ApiVersion("1.0")]
+[Produces("application/json")]
 public class QueryController : ControllerBase
 {
     private readonly IDynamoDBService _dynamoDbService;
@@ -40,26 +42,25 @@ public class QueryController : ControllerBase
     }
 
     /// <summary>
-    /// Handles POST requests to query DynamoDB records.
-    /// Validates the request and returns matching records.
+    /// Executes a basic query against DynamoDB.
     /// </summary>
     /// <param name="request">The query request containing search criteria</param>
-    /// <returns>
-    /// - 200 OK with query results if successful
-    /// - 400 Bad Request if validation fails
-    /// - 500 Internal Server Error if an exception occurs
-    /// </returns>
+    /// <returns>Query results matching the criteria</returns>
+    /// <response code="200">Returns the query results</response>
+    /// <response code="400">If the request is invalid</response>
+    /// <response code="500">If there was an internal server error</response>
     [HttpPost]
+    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<QueryResponse>> Query([FromBody] QueryRequest request)
     {
-        // Validate the request using FluentValidation
         var validationResult = await _validator.ValidateAsync(request);
         if (!validationResult.IsValid)
         {
-            // Return validation errors in a structured format
-            return BadRequest(new
+            return BadRequest(new ValidationErrorResponse
             {
-                Errors = validationResult.Errors.Select(e => new
+                Errors = validationResult.Errors.Select(e => new ValidationError
                 {
                     Field = e.PropertyName,
                     Message = e.ErrorMessage
@@ -69,19 +70,37 @@ public class QueryController : ControllerBase
 
         try
         {
-            // Execute the query and return results
             var response = await _dynamoDbService.QueryRecordsAsync(request);
             return Ok(response);
         }
         catch (Exception ex)
         {
-            // Log the exception here
-            // Return a generic error message to avoid exposing internal details
-            return StatusCode(500, new { Message = "An error occurred while processing your request." });
+            _logger.LogError(ex, "Error executing query");
+            return StatusCode(500, new ErrorResponse
+            {
+                Message = "An error occurred while processing your request."
+            });
         }
     }
 
+    /// <summary>
+    /// Executes a paginated query against DynamoDB.
+    /// </summary>
+    /// <param name="request">The query request containing search criteria</param>
+    /// <param name="pageSize">Maximum number of items per page (default: 1000)</param>
+    /// <param name="continuationToken">Token for retrieving the next page of results</param>
+    /// <returns>Paginated query results matching the criteria</returns>
+    /// <response code="200">Returns the paginated query results</response>
+    /// <response code="400">If the request is invalid or continuation token is malformed</response>
+    /// <response code="404">If the table or index does not exist</response>
+    /// <response code="429">If the request is throttled</response>
+    /// <response code="500">If there was an internal server error</response>
     [HttpPost("paginated")]
+    [ProducesResponseType(typeof(PaginatedQueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> QueryPaginated(
         [FromBody] QueryRequest request,
         [FromQuery] int? pageSize = 1000,
@@ -100,7 +119,10 @@ public class QueryController : ControllerBase
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Invalid continuation token");
-                    return BadRequest("Invalid continuation token");
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid continuation token"
+                    });
                 }
             }
 
@@ -117,26 +139,54 @@ public class QueryController : ControllerBase
         catch (ProvisionedThroughputExceededException ex)
         {
             _logger.LogError(ex, "DynamoDB throttling error");
-            return StatusCode(429, "Service temporarily unavailable. Please try again later.");
+            return StatusCode(429, new ErrorResponse
+            {
+                Message = "Service temporarily unavailable. Please try again later."
+            });
         }
         catch (ResourceNotFoundException ex)
         {
             _logger.LogError(ex, "Table or index not found");
-            return NotFound("The requested table or index does not exist.");
+            return NotFound(new ErrorResponse
+            {
+                Message = "The requested table or index does not exist."
+            });
         }
         catch (ValidationException ex)
         {
             _logger.LogError(ex, "Invalid query parameters");
-            return BadRequest(ex.Message);
+            return BadRequest(new ErrorResponse
+            {
+                Message = ex.Message
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error executing paginated query");
-            return StatusCode(500, "An error occurred while processing your request.");
+            return StatusCode(500, new ErrorResponse
+            {
+                Message = "An error occurred while processing your request."
+            });
         }
     }
 
+    /// <summary>
+    /// Executes a query and retrieves all results up to the specified maximum.
+    /// </summary>
+    /// <param name="request">The query request containing search criteria</param>
+    /// <param name="maxItems">Maximum number of items to retrieve (default: 10000)</param>
+    /// <returns>All query results up to the maximum limit</returns>
+    /// <response code="200">Returns all query results up to the maximum limit</response>
+    /// <response code="400">If the request is invalid</response>
+    /// <response code="404">If the table or index does not exist</response>
+    /// <response code="429">If the request is throttled</response>
+    /// <response code="500">If there was an internal server error</response>
     [HttpPost("all")]
+    [ProducesResponseType(typeof(PaginatedQueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> QueryAll(
         [FromBody] QueryRequest request,
         [FromQuery] int? maxItems = 10000)
@@ -157,22 +207,51 @@ public class QueryController : ControllerBase
         catch (ProvisionedThroughputExceededException ex)
         {
             _logger.LogError(ex, "DynamoDB throttling error");
-            return StatusCode(429, "Service temporarily unavailable. Please try again later.");
+            return StatusCode(429, new ErrorResponse
+            {
+                Message = "Service temporarily unavailable. Please try again later."
+            });
         }
         catch (ResourceNotFoundException ex)
         {
             _logger.LogError(ex, "Table or index not found");
-            return NotFound("The requested table or index does not exist.");
+            return NotFound(new ErrorResponse
+            {
+                Message = "The requested table or index does not exist."
+            });
         }
         catch (ValidationException ex)
         {
             _logger.LogError(ex, "Invalid query parameters");
-            return BadRequest(ex.Message);
+            return BadRequest(new ErrorResponse
+            {
+                Message = ex.Message
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error executing query with pagination");
-            return StatusCode(500, "An error occurred while processing your request.");
+            return StatusCode(500, new ErrorResponse
+            {
+                Message = "An error occurred while processing your request."
+            });
         }
     }
+}
+
+public class ValidationErrorResponse
+{
+    public List<ValidationError> Errors { get; set; } = new();
+}
+
+public class ValidationError
+{
+    public string Field { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+}
+
+public class ErrorResponse
+{
+    public string Message { get; set; } = string.Empty;
+} 
 } 
