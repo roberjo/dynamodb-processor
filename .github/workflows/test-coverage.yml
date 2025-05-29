@@ -19,42 +19,102 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '7.0.x'
+        dotnet-version: |
+          7.0.x
+          8.0.x
 
     - name: Restore dependencies
-      run: dotnet restore src/DynamoDBProcessor/DynamoDBProcessor.csproj
+      run: dotnet restore DynamoDBProcessor.sln
 
     - name: Build
-      run: dotnet build src/DynamoDBProcessor/DynamoDBProcessor.csproj --no-restore
+      run: dotnet build DynamoDBProcessor.sln --no-restore
 
-    - name: Test with coverage
+    - name: Test with coverage (Unit Tests)
       run: |
-        dotnet test src/DynamoDBProcessor/DynamoDBProcessor.csproj \
+        dotnet test src/DynamoDBProcessor.Tests/DynamoDBProcessor.Tests.csproj \
           --collect:"XPlat Code Coverage" \
-          --results-directory ./coverage \
+          --results-directory ./coverage/unit \
           --logger:"console;verbosity=detailed" \
           --logger:"trx;LogFileName=test-results.trx"
 
-    - name: Generate coverage report
+    - name: Test with coverage (Integration Tests)
+      run: |
+        dotnet test src/DynamoDBProcessor.IntegrationTests/DynamoDBProcessor.IntegrationTests.csproj \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./coverage/integration \
+          --logger:"console;verbosity=detailed" \
+          --logger:"trx;LogFileName=test-results.trx"
+
+    - name: Generate combined coverage report
       run: |
         reportgenerator \
           -reports:"./coverage/**/coverage.cobertura.xml" \
           -targetdir:"./coverage/report" \
-          -reporttypes:"Html;Badges;MarkdownSummary"
+          -reporttypes:"Html;Badges;MarkdownSummary" \
+          -assemblyfilters:"+DynamoDBProcessor*;-DynamoDBProcessor.Tests*;-DynamoDBProcessor.IntegrationTests*"
 
-    - name: Extract coverage metrics
+    - name: Extract combined coverage metrics
       id: coverage
       run: |
-        COVERAGE=$(grep -oP '(?<=<coverage line-rate=")[^"]*' ./coverage/**/coverage.cobertura.xml)
+        # Find all coverage files
+        COVERAGE_FILES=$(find ./coverage -name "coverage.cobertura.xml")
+        
+        # Initialize variables
+        TOTAL_LINES=0
+        COVERED_LINES=0
+        
+        # Process each coverage file
+        for file in $COVERAGE_FILES; do
+          # Extract line-rate from each file
+          LINE_RATE=$(grep -oP '(?<=<coverage line-rate=")[^"]*' "$file")
+          
+          # Get total lines and covered lines
+          LINES=$(grep -oP '(?<=lines-covered=")[^"]*' "$file")
+          TOTAL=$(grep -oP '(?<=lines-valid=")[^"]*' "$file")
+          
+          # Add to totals
+          TOTAL_LINES=$((TOTAL_LINES + TOTAL))
+          COVERED_LINES=$((COVERED_LINES + LINES))
+        done
+        
+        # Calculate overall coverage
+        if [ $TOTAL_LINES -gt 0 ]; then
+          COVERAGE=$(echo "scale=2; ($COVERED_LINES/$TOTAL_LINES)*100" | bc)
+        else
+          COVERAGE=0
+        fi
+        
         echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
-        echo "Coverage: $COVERAGE"
+        echo "Coverage: $COVERAGE%"
 
     - name: Extract test results
       id: test-results
       run: |
-        TOTAL=$(grep -oP '(?<=total=")[^"]*' ./coverage/**/coverage.cobertura.xml)
-        PASSED=$(grep -oP '(?<=passed=")[^"]*' ./coverage/**/coverage.cobertura.xml)
-        SUCCESS_RATE=$(echo "scale=2; ($PASSED/$TOTAL)*100" | bc)
+        # Find all test result files
+        TEST_FILES=$(find ./coverage -name "test-results.trx")
+        
+        # Initialize variables
+        TOTAL_TESTS=0
+        PASSED_TESTS=0
+        
+        # Process each test file
+        for file in $TEST_FILES; do
+          # Extract test counts
+          TESTS=$(grep -oP '(?<=total=")[^"]*' "$file")
+          PASSED=$(grep -oP '(?<=passed=")[^"]*' "$file")
+          
+          # Add to totals
+          TOTAL_TESTS=$((TOTAL_TESTS + TESTS))
+          PASSED_TESTS=$((PASSED_TESTS + PASSED))
+        done
+        
+        # Calculate success rate
+        if [ $TOTAL_TESTS -gt 0 ]; then
+          SUCCESS_RATE=$(echo "scale=2; ($PASSED_TESTS/$TOTAL_TESTS)*100" | bc)
+        else
+          SUCCESS_RATE=0
+        fi
+        
         echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
         echo "Success Rate: $SUCCESS_RATE%"
 
