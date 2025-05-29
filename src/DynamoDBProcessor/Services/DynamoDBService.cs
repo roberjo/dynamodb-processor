@@ -11,18 +11,33 @@ namespace DynamoDBProcessor.Services;
 public class DynamoDBService : IDynamoDBService
 {
     private readonly IAmazonDynamoDB _dynamoDbClient;
+    private readonly ICacheService _cacheService;
+    private readonly IMetricsService _metricsService;
     private readonly string _tableName;
+    private readonly ILogger<DynamoDBService> _logger;
     private const int PageSize = 100;
+    private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Initializes a new instance of the DynamoDBService.
     /// </summary>
     /// <param name="dynamoDbClient">The AWS DynamoDB client</param>
+    /// <param name="cacheService">The caching service</param>
+    /// <param name="metricsService">The metrics service</param>
     /// <param name="tableName">The name of the DynamoDB table to query</param>
-    public DynamoDBService(IAmazonDynamoDB dynamoDbClient, string tableName)
+    /// <param name="logger">The logger</param>
+    public DynamoDBService(
+        IAmazonDynamoDB dynamoDbClient,
+        ICacheService cacheService,
+        IMetricsService metricsService,
+        string tableName,
+        ILogger<DynamoDBService> logger)
     {
         _dynamoDbClient = dynamoDbClient;
+        _cacheService = cacheService;
+        _metricsService = metricsService;
         _tableName = tableName;
+        _logger = logger;
     }
 
     /// <summary>
@@ -34,44 +49,88 @@ public class DynamoDBService : IDynamoDBService
     /// <returns>A QueryResponse containing the matching records and pagination information</returns>
     public async Task<QueryResponse> QueryRecordsAsync(QueryRequest request, CancellationToken cancellationToken = default)
     {
-        var response = new QueryResponse();
-        var queryRequest = BuildQueryRequest(request);
-        
-        QueryResponse? dynamoResponse = null;
-        do
+        var startTime = DateTime.UtcNow;
+        var dimensions = new Dictionary<string, string>
         {
-            // If we have a continuation token, use it to get the next page
-            if (dynamoResponse?.LastEvaluatedKey != null)
+            { "TableName", _tableName },
+            { "UserId", request.UserId },
+            { "SystemId", request.SystemId }
+        };
+
+        try
+        {
+            // Generate cache key based on request parameters
+            var cacheKey = GenerateCacheKey(request);
+
+            // Try to get from cache first
+            var cachedResponse = await _cacheService.GetAsync<QueryResponse>(cacheKey);
+            if (cachedResponse != null)
             {
-                queryRequest.ExclusiveStartKey = dynamoResponse.LastEvaluatedKey;
+                _logger.LogInformation("Cache hit for query with key: {CacheKey}", cacheKey);
+                await _metricsService.RecordCountAsync("CacheHit", 1, dimensions);
+                return cachedResponse;
             }
 
-            // Execute the query
-            dynamoResponse = await _dynamoDbClient.QueryAsync(queryRequest, cancellationToken);
+            _logger.LogInformation("Cache miss for query with key: {CacheKey}", cacheKey);
+            await _metricsService.RecordCountAsync("CacheMiss", 1, dimensions);
+
+            var response = new QueryResponse();
+            var queryRequest = BuildQueryRequest(request);
             
-            // Map DynamoDB items to audit records
-            foreach (var item in dynamoResponse.Items)
+            QueryResponse? dynamoResponse = null;
+            do
             {
-                response.Records.Add(MapToAuditRecord(item));
+                // If we have a continuation token, use it to get the next page
+                if (dynamoResponse?.LastEvaluatedKey != null)
+                {
+                    queryRequest.ExclusiveStartKey = dynamoResponse.LastEvaluatedKey;
+                }
+
+                // Execute the query
+                dynamoResponse = await _dynamoDbClient.QueryAsync(queryRequest, cancellationToken);
+                
+                // Map DynamoDB items to audit records
+                foreach (var item in dynamoResponse.Items)
+                {
+                    response.Records.Add(MapToAuditRecord(item));
+                }
+
+                // Update response metadata
+                response.TotalRecords += dynamoResponse.Items.Count;
+                response.HasMoreRecords = dynamoResponse.LastEvaluatedKey != null;
+                
+                // Generate continuation token if there are more records
+                if (response.HasMoreRecords)
+                {
+                    response.ContinuationToken = Convert.ToBase64String(
+                        System.Text.Encoding.UTF8.GetBytes(
+                            System.Text.Json.JsonSerializer.Serialize(dynamoResponse.LastEvaluatedKey)
+                        )
+                    );
+                }
+
+            } while (dynamoResponse.LastEvaluatedKey != null && response.Records.Count < PageSize);
+
+            // Cache the response if it's not too large
+            if (response.Records.Count <= PageSize)
+            {
+                await _cacheService.SetAsync(cacheKey, response, CacheExpiration);
             }
 
-            // Update response metadata
-            response.TotalRecords += dynamoResponse.Items.Count;
-            response.HasMoreRecords = dynamoResponse.LastEvaluatedKey != null;
-            
-            // Generate continuation token if there are more records
-            if (response.HasMoreRecords)
-            {
-                response.ContinuationToken = Convert.ToBase64String(
-                    System.Text.Encoding.UTF8.GetBytes(
-                        System.Text.Json.JsonSerializer.Serialize(dynamoResponse.LastEvaluatedKey)
-                    )
-                );
-            }
+            // Record metrics
+            var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            await _metricsService.RecordTimingAsync("QueryDuration", duration, dimensions);
+            await _metricsService.RecordCountAsync("RecordsRetrieved", response.TotalRecords, dimensions);
+            await _metricsService.RecordCountAsync("QuerySuccess", 1, dimensions);
 
-        } while (dynamoResponse.LastEvaluatedKey != null && response.Records.Count < PageSize);
-
-        return response;
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying records");
+            await _metricsService.RecordCountAsync("QueryError", 1, dimensions);
+            throw;
+        }
     }
 
     /// <summary>
@@ -124,5 +183,15 @@ public class DynamoDBService : IDynamoDBService
         }
 
         return record;
+    }
+
+    /// <summary>
+    /// Generates a cache key based on the query request parameters.
+    /// </summary>
+    /// <param name="request">The query request</param>
+    /// <returns>A string representing the cache key</returns>
+    private static string GenerateCacheKey(QueryRequest request)
+    {
+        return $"query_{request.UserId}_{request.StartDate:yyyyMMdd}_{request.EndDate:yyyyMMdd}_{request.SystemId}_{request.ResourceId}";
     }
 } 

@@ -10,6 +10,8 @@ using DynamoDBProcessor.Middleware;
 using FluentValidation;
 using Amazon.DynamoDBv2;
 using Amazon.CloudWatchLogs;
+using Amazon.CloudWatch;
+using AspNetCoreRateLimit;
 
 namespace DynamoDBProcessor;
 
@@ -38,16 +40,36 @@ public class Function : APIGatewayProxyFunction
                 // Register AWS services
                 services.AddAWSService<IAmazonDynamoDB>();
                 services.AddAWSService<IAmazonCloudWatchLogs>();
+                services.AddAWSService<IAmazonCloudWatch>();
+                
+                // Configure rate limiting
+                services.ConfigureRateLimiting();
+                
+                // Add memory cache
+                services.AddMemoryCache();
+                services.AddSingleton<ICacheService, MemoryCacheService>();
+                
+                // Register metrics service
+                services.AddSingleton<IMetricsService>(sp =>
+                {
+                    var cloudWatchClient = sp.GetRequiredService<IAmazonCloudWatch>();
+                    var logger = sp.GetRequiredService<ILogger<CloudWatchMetricsService>>();
+                    var environment = context.HostingEnvironment.EnvironmentName;
+                    return new CloudWatchMetricsService(cloudWatchClient, logger, $"DynamoDBProcessor/{environment}");
+                });
                 
                 // Register the DynamoDB service with configuration
                 // This service handles all DynamoDB operations and is scoped per request
                 services.AddScoped<IDynamoDBService>(sp =>
                 {
                     var dynamoDbClient = sp.GetRequiredService<IAmazonDynamoDB>();
+                    var cacheService = sp.GetRequiredService<ICacheService>();
+                    var metricsService = sp.GetRequiredService<IMetricsService>();
+                    var logger = sp.GetRequiredService<ILogger<DynamoDBService>>();
                     // Get table name from environment variables
                     var tableName = context.Configuration["DYNAMODB_TABLE_NAME"] 
                         ?? throw new InvalidOperationException("DYNAMODB_TABLE_NAME configuration is missing");
-                    return new DynamoDBService(dynamoDbClient, tableName);
+                    return new DynamoDBService(dynamoDbClient, cacheService, metricsService, tableName, logger);
                 });
                 
                 // Register FluentValidation validators for request validation
@@ -64,10 +86,17 @@ public class Function : APIGatewayProxyFunction
 
                 // Configure middleware pipeline
                 app.UseHttpsRedirection(); // Redirect HTTP to HTTPS
+                
+                // Add security headers first
+                app.UseMiddleware<SecurityHeadersMiddleware>();
+                
+                // Add rate limiting
+                app.UseIpRateLimiting();
+                
                 app.UseRouting(); // Enable endpoint routing
                 app.UseAuthorization(); // Enable authorization middleware
                 
-                // Add our custom middleware
+                // Add request/response logging
                 app.UseMiddleware<RequestResponseLoggingMiddleware>();
                 
                 app.UseEndpoints(endpoints =>
