@@ -114,7 +114,7 @@ public class QueryPerformanceTests
         _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
-        object cachedValue = new PaginatedQueryResponse
+        object cachedValue = new DynamoPaginatedQueryResponse
         {
             Items = expectedResponse.Items,
             HasMoreResults = false

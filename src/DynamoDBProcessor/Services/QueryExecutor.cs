@@ -5,16 +5,17 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Retry;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
 
 namespace DynamoDBProcessor.Services;
 
 public interface IQueryExecutor
 {
-    Task<PaginatedQueryResponse> ExecuteQueryAsync(
+    Task<DynamoPaginatedQueryResponse> ExecuteQueryAsync(
         QueryRequest request,
         Dictionary<string, AttributeValue>? lastEvaluatedKey = null);
     
-    Task<PaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
+    Task<DynamoPaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
         QueryRequest request,
         int maxItems = 10000);
 }
@@ -29,7 +30,7 @@ public class QueryExecutor : IQueryExecutor
     private const int MaxRetries = 3;
     private const int BaseDelayMs = 100;
 
-    private readonly AsyncRetryPolicy<PaginatedQueryResponse> _retryPolicy;
+    private readonly AsyncRetryPolicy<DynamoPaginatedQueryResponse> _retryPolicy;
 
     public QueryExecutor(
         IAmazonDynamoDB dynamoDB,
@@ -42,7 +43,7 @@ public class QueryExecutor : IQueryExecutor
         _metrics = metrics;
         _logger = logger;
 
-        _retryPolicy = Policy<PaginatedQueryResponse>
+        _retryPolicy = Policy<DynamoPaginatedQueryResponse>
             .Handle<ProvisionedThroughputExceededException>()
             .WaitAndRetryAsync(
                 MaxRetries,
@@ -59,13 +60,13 @@ public class QueryExecutor : IQueryExecutor
                 });
     }
 
-    public async Task<PaginatedQueryResponse> ExecuteQueryAsync(
+    public async Task<DynamoPaginatedQueryResponse> ExecuteQueryAsync(
         QueryRequest request,
         Dictionary<string, AttributeValue>? lastEvaluatedKey = null)
     {
         var cacheKey = GenerateCacheKey(request, lastEvaluatedKey);
         
-        if (_cache.TryGetValue(cacheKey, out PaginatedQueryResponse? cachedResponse))
+        if (_cache.TryGetValue(cacheKey, out DynamoPaginatedQueryResponse? cachedResponse))
         {
             _metrics.RecordCountAsync("CacheHit", 1);
             return cachedResponse!;
@@ -84,7 +85,7 @@ public class QueryExecutor : IQueryExecutor
 
                 var response = await _dynamoDB.QueryAsync(request);
                 
-                var paginatedResponse = new PaginatedQueryResponse
+                var paginatedResponse = new DynamoPaginatedQueryResponse
                 {
                     Items = response.Items,
                     LastEvaluatedKey = response.LastEvaluatedKey,
@@ -111,7 +112,7 @@ public class QueryExecutor : IQueryExecutor
         });
     }
 
-    public async Task<PaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
+    public async Task<DynamoPaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
         QueryRequest request,
         int maxItems = 10000)
     {
@@ -137,7 +138,7 @@ public class QueryExecutor : IQueryExecutor
             }
         } while (lastEvaluatedKey != null);
 
-        return new PaginatedQueryResponse
+        return new DynamoPaginatedQueryResponse
         {
             Items = allItems,
             LastEvaluatedKey = lastEvaluatedKey,

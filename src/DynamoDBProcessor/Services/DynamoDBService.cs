@@ -1,6 +1,8 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using DynamoDBProcessor.Models;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DynamoDBProcessor.Services;
 
@@ -10,34 +12,28 @@ namespace DynamoDBProcessor.Services;
 /// </summary>
 public class DynamoDBService : IDynamoDBService
 {
-    private readonly IAmazonDynamoDB _dynamoDbClient;
+    private readonly IAmazonDynamoDB _dynamoDb;
     private readonly ICacheService _cacheService;
-    private readonly IMetricsService _metricsService;
-    private readonly string _tableName;
     private readonly ILogger<DynamoDBService> _logger;
-    private const int PageSize = 100;
-    private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(5);
+    private readonly IMetricsService _metricsService;
 
     /// <summary>
     /// Initializes a new instance of the DynamoDBService.
     /// </summary>
-    /// <param name="dynamoDbClient">The AWS DynamoDB client</param>
+    /// <param name="dynamoDb">The AWS DynamoDB client</param>
     /// <param name="cacheService">The caching service</param>
-    /// <param name="metricsService">The metrics service</param>
-    /// <param name="tableName">The name of the DynamoDB table to query</param>
     /// <param name="logger">The logger</param>
+    /// <param name="metricsService">The metrics service</param>
     public DynamoDBService(
-        IAmazonDynamoDB dynamoDbClient,
+        IAmazonDynamoDB dynamoDb,
         ICacheService cacheService,
-        IMetricsService metricsService,
-        string tableName,
-        ILogger<DynamoDBService> logger)
+        ILogger<DynamoDBService> logger,
+        IMetricsService metricsService)
     {
-        _dynamoDbClient = dynamoDbClient;
+        _dynamoDb = dynamoDb;
         _cacheService = cacheService;
-        _metricsService = metricsService;
-        _tableName = tableName;
         _logger = logger;
+        _metricsService = metricsService;
     }
 
     /// <summary>
@@ -47,151 +43,144 @@ public class DynamoDBService : IDynamoDBService
     /// <param name="request">The query request containing search criteria</param>
     /// <param name="cancellationToken">Token to monitor for cancellation requests</param>
     /// <returns>A QueryResponse containing the matching records and pagination information</returns>
-    public async Task<QueryResponse> QueryRecordsAsync(QueryRequest request, CancellationToken cancellationToken = default)
+    public async Task<DynamoQueryResponse> QueryRecordsAsync(DynamoQueryRequest request, CancellationToken cancellationToken = default)
     {
-        var startTime = DateTime.UtcNow;
-        var dimensions = new Dictionary<string, string>
-        {
-            { "TableName", _tableName },
-            { "UserId", request.UserId },
-            { "SystemId", request.SystemId }
-        };
-
+        var cacheKey = $"query_{request.TableName}_{request.PartitionKeyValue}_{request.SortKeyValue}_{request.SortKeyOperator}_{request.FilterExpression}";
+        
         try
         {
-            // Generate cache key based on request parameters
-            var cacheKey = GenerateCacheKey(request);
-
             // Try to get from cache first
-            var cachedResponse = await _cacheService.GetAsync<QueryResponse>(cacheKey);
+            var cachedResponse = await _cacheService.GetAsync<DynamoQueryResponse>(cacheKey);
             if (cachedResponse != null)
             {
-                _logger.LogInformation("Cache hit for query with key: {CacheKey}", cacheKey);
-                await _metricsService.RecordCountAsync("CacheHit", 1, dimensions);
+                _logger.LogInformation("Cache hit for query: {CacheKey}", cacheKey);
+                _metricsService.RecordCacheHit("dynamodb_query");
                 return cachedResponse;
             }
 
-            _logger.LogInformation("Cache miss for query with key: {CacheKey}", cacheKey);
-            await _metricsService.RecordCountAsync("CacheMiss", 1, dimensions);
+            _logger.LogInformation("Cache miss for query: {CacheKey}", cacheKey);
+            _metricsService.RecordCacheMiss("dynamodb_query");
 
-            var response = new QueryResponse();
-            var queryRequest = BuildQueryRequest(request);
-            
-            QueryResponse? dynamoResponse = null;
-            do
+            // Convert our request to AWS SDK request
+            var dynamoRequest = new QueryRequest
             {
-                // If we have a continuation token, use it to get the next page
-                if (dynamoResponse?.LastEvaluatedKey != null)
-                {
-                    queryRequest.ExclusiveStartKey = dynamoResponse.LastEvaluatedKey;
-                }
+                TableName = request.TableName,
+                KeyConditionExpression = BuildKeyConditionExpression(request),
+                FilterExpression = request.FilterExpression,
+                ExpressionAttributeValues = ConvertToAttributeValues(request.ExpressionAttributeValues),
+                ExpressionAttributeNames = request.ExpressionAttributeNames,
+                Limit = request.Limit,
+                ExclusiveStartKey = ConvertToAttributeValues(request.ExclusiveStartKey),
+                ScanIndexForward = request.ScanIndexForward,
+                ConsistentRead = request.ConsistentRead,
+                ReturnConsumedCapacity = request.ReturnConsumedCapacity,
+                ProjectionExpression = request.ProjectionExpression
+            };
 
-                // Execute the query
-                dynamoResponse = await _dynamoDbClient.QueryAsync(queryRequest, cancellationToken);
-                
-                // Map DynamoDB items to audit records
-                foreach (var item in dynamoResponse.Items)
-                {
-                    response.Records.Add(MapToAuditRecord(item));
-                }
+            var dynamoResponse = await _dynamoDb.QueryAsync(dynamoRequest, cancellationToken);
 
-                // Update response metadata
-                response.TotalRecords += dynamoResponse.Items.Count;
-                response.HasMoreRecords = dynamoResponse.LastEvaluatedKey != null;
-                
-                // Generate continuation token if there are more records
-                if (response.HasMoreRecords)
-                {
-                    response.ContinuationToken = Convert.ToBase64String(
-                        System.Text.Encoding.UTF8.GetBytes(
-                            System.Text.Json.JsonSerializer.Serialize(dynamoResponse.LastEvaluatedKey)
-                        )
-                    );
-                }
-
-            } while (dynamoResponse.LastEvaluatedKey != null && response.Records.Count < PageSize);
-
-            // Cache the response if it's not too large
-            if (response.Records.Count <= PageSize)
+            // Convert AWS SDK response to our response type
+            var response = new DynamoQueryResponse
             {
-                await _cacheService.SetAsync(cacheKey, response, CacheExpiration);
-            }
+                Items = ConvertFromAttributeValues(dynamoResponse.Items),
+                LastEvaluatedKey = ConvertFromAttributeValues(dynamoResponse.LastEvaluatedKey),
+                Count = dynamoResponse.Count,
+                ScannedCount = dynamoResponse.ScannedCount,
+                ConsumedCapacity = dynamoResponse.ConsumedCapacity
+            };
 
-            // Record metrics
-            var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            await _metricsService.RecordTimingAsync("QueryDuration", duration, dimensions);
-            await _metricsService.RecordCountAsync("RecordsRetrieved", response.TotalRecords, dimensions);
-            await _metricsService.RecordCountAsync("QuerySuccess", 1, dimensions);
+            // Cache the response
+            await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
 
             return response;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error querying records");
-            await _metricsService.RecordCountAsync("QueryError", 1, dimensions);
+            _logger.LogError(ex, "Error querying DynamoDB: {Message}", ex.Message);
+            _metricsService.RecordError("dynamodb_query", ex);
             throw;
         }
     }
 
-    /// <summary>
-    /// Builds a DynamoDB QueryRequest based on the provided QueryRequest parameters.
-    /// Uses GSI1 (Global Secondary Index 1) for efficient querying.
-    /// </summary>
-    /// <param name="request">The query request containing search criteria</param>
-    /// <returns>A DynamoDB QueryRequest configured for the audit table</returns>
-    private QueryRequest BuildQueryRequest(QueryRequest request)
+    private string BuildKeyConditionExpression(DynamoQueryRequest request)
     {
-        var startDate = request.StartDate.ToString("yyyy-MM-dd");
-        var endDate = request.EndDate.ToString("yyyy-MM-dd");
-
-        return new QueryRequest
+        var conditions = new List<string>();
+        
+        // Add partition key condition
+        conditions.Add($"#pk = :pk");
+        
+        // Add sort key condition if provided
+        if (!string.IsNullOrEmpty(request.SortKeyValue))
         {
-            TableName = _tableName,
-            IndexName = "GSI1",
-            KeyConditionExpression = "GS1_PK = :userId AND GS1_SK BETWEEN :startDate AND :endDate",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            if (string.IsNullOrEmpty(request.SortKeyOperator))
             {
-                { ":userId", new AttributeValue { S = $"#{request.UserId}" } },
-                { ":startDate", new AttributeValue { S = $"{startDate}#" } },
-                { ":endDate", new AttributeValue { S = $"{endDate}#" } }
-            },
-            Limit = PageSize
-        };
-    }
-
-    /// <summary>
-    /// Maps a DynamoDB item to an AuditRecord.
-    /// Extracts and formats the necessary fields from the DynamoDB item.
-    /// </summary>
-    /// <param name="item">The DynamoDB item to map</param>
-    /// <returns>An AuditRecord containing the mapped data</returns>
-    private static AuditRecord MapToAuditRecord(Dictionary<string, AttributeValue> item)
-    {
-        var record = new AuditRecord
-        {
-            SystemId = item["PK"].S.Split('#')[0],
-            UserId = item["GS1_PK"].S.TrimStart('#'),
-            ResourceId = item["GSI2_PK"].S.TrimStart('#'),
-            AuditId = item["SK"].S.Split('#')[1],
-            Timestamp = DateTime.Parse(item["SK"].S.Split('#')[0])
-        };
-
-        // Map any additional attributes that aren't part of the key schema
-        foreach (var kvp in item.Where(x => !x.Key.StartsWith("PK") && !x.Key.StartsWith("SK")))
-        {
-            record.AdditionalData[kvp.Key] = kvp.Value.S;
+                conditions.Add("#sk = :sk");
+            }
+            else
+            {
+                conditions.Add($"#sk {request.SortKeyOperator} :sk");
+            }
         }
 
-        return record;
+        return string.Join(" AND ", conditions);
     }
 
-    /// <summary>
-    /// Generates a cache key based on the query request parameters.
-    /// </summary>
-    /// <param name="request">The query request</param>
-    /// <returns>A string representing the cache key</returns>
-    private static string GenerateCacheKey(QueryRequest request)
+    private Dictionary<string, AttributeValue>? ConvertToAttributeValues(Dictionary<string, object>? values)
     {
-        return $"query_{request.UserId}_{request.StartDate:yyyyMMdd}_{request.EndDate:yyyyMMdd}_{request.SystemId}_{request.ResourceId}";
+        if (values == null) return null;
+
+        var result = new Dictionary<string, AttributeValue>();
+        foreach (var kvp in values)
+        {
+            result[kvp.Key] = ConvertToAttributeValue(kvp.Value);
+        }
+        return result;
+    }
+
+    private AttributeValue ConvertToAttributeValue(object value)
+    {
+        return value switch
+        {
+            string s => new AttributeValue { S = s },
+            int i => new AttributeValue { N = i.ToString() },
+            long l => new AttributeValue { N = l.ToString() },
+            double d => new AttributeValue { N = d.ToString() },
+            bool b => new AttributeValue { BOOL = b },
+            null => new AttributeValue { NULL = true },
+            _ => new AttributeValue { S = value.ToString() }
+        };
+    }
+
+    private List<Dictionary<string, object>> ConvertFromAttributeValues(List<Dictionary<string, AttributeValue>>? items)
+    {
+        if (items == null) return new List<Dictionary<string, object>>();
+
+        return items.Select(item => ConvertFromAttributeValues(item)).ToList();
+    }
+
+    private Dictionary<string, object>? ConvertFromAttributeValues(Dictionary<string, AttributeValue>? item)
+    {
+        if (item == null) return null;
+
+        var result = new Dictionary<string, object>();
+        foreach (var kvp in item)
+        {
+            result[kvp.Key] = ConvertFromAttributeValue(kvp.Value);
+        }
+        return result;
+    }
+
+    private object ConvertFromAttributeValue(AttributeValue value)
+    {
+        if (value.S != null) return value.S;
+        if (value.N != null) return decimal.Parse(value.N);
+        if (value.BOOL.HasValue) return value.BOOL.Value;
+        if (value.NULL) return null;
+        if (value.SS != null) return value.SS;
+        if (value.NS != null) return value.NS.Select(n => decimal.Parse(n)).ToList();
+        if (value.BS != null) return value.BS;
+        if (value.M != null) return ConvertFromAttributeValues(value.M);
+        if (value.L != null) return value.L.Select(ConvertFromAttributeValue).ToList();
+        return null;
     }
 } 

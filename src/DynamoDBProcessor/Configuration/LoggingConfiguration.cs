@@ -2,7 +2,7 @@ using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
 using Amazon.CloudWatchLogs;
-using Serilog.Sinks.AWSCloudWatch;
+using Serilog.Sinks.AwsCloudWatch;
 
 namespace DynamoDBProcessor.Configuration;
 

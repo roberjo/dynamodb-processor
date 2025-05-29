@@ -55,7 +55,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync("/api/query/paginated", request);
-        var result = await response.Content.ReadFromJsonAsync<PaginatedQueryResponse>();
+        var result = await response.Content.ReadFromJsonAsync<DynamoPaginatedQueryResponse>();
 
         // Assert
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
@@ -100,7 +100,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await _client.PostAsJsonAsync("/api/query/all", request);
-        var result = await response.Content.ReadFromJsonAsync<PaginatedQueryResponse>();
+        var result = await response.Content.ReadFromJsonAsync<DynamoPaginatedQueryResponse>();
 
         // Assert
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
@@ -167,11 +167,11 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
 
         // Act - First request
         var response1 = await _client.PostAsJsonAsync("/api/query/paginated", request);
-        var result1 = await response1.Content.ReadFromJsonAsync<PaginatedQueryResponse>();
+        var result1 = await response1.Content.ReadFromJsonAsync<DynamoPaginatedQueryResponse>();
 
         // Act - Second request (should be cached)
         var response2 = await _client.PostAsJsonAsync("/api/query/paginated", request);
-        var result2 = await response2.Content.ReadFromJsonAsync<PaginatedQueryResponse>();
+        var result2 = await response2.Content.ReadFromJsonAsync<DynamoPaginatedQueryResponse>();
 
         // Assert
         response1.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);

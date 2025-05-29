@@ -32,7 +32,7 @@ public class QueryControllerTests
             UserId = "test-user"
         };
 
-        var expectedResponse = new PaginatedQueryResponse
+        var expectedResponse = new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
             {
@@ -68,7 +68,7 @@ public class QueryControllerTests
 
         var continuationToken = "eyJ1c2VySWQiOiJ0ZXN0LXVzZXIiLCJ0aW1lc3RhbXAiOjEyMzQ1Njc4OTB9";
 
-        var expectedResponse = new PaginatedQueryResponse
+        var expectedResponse = new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
             {
@@ -103,7 +103,7 @@ public class QueryControllerTests
             UserId = "test-user"
         };
 
-        var expectedResponse = new PaginatedQueryResponse
+        var expectedResponse = new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
             {
@@ -179,7 +179,7 @@ public class QueryControllerTests
 
         var maxItems = 100;
 
-        var expectedResponse = new PaginatedQueryResponse
+        var expectedResponse = new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
             {

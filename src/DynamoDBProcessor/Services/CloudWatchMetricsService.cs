@@ -120,4 +120,9 @@ public class CloudWatchMetricsService : IMetricsService
             Value = d.Value
         }).ToList();
     }
+
+    public async Task RecordLatencyAsync(string metricName, TimeSpan duration)
+    {
+        await RecordTimingAsync(metricName, duration.TotalMilliseconds);
+    }
 } 

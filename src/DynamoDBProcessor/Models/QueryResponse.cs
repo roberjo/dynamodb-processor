@@ -1,31 +1,41 @@
+using System.Text.Json.Serialization;
+
 namespace DynamoDBProcessor.Models;
 
 /// <summary>
-/// Represents the response from a DynamoDB query operation.
-/// Contains the query results and pagination information.
+/// Represents a response from a DynamoDB query operation
 /// </summary>
-public class QueryResponse
+public class DynamoQueryResponse
 {
     /// <summary>
-    /// List of audit records matching the query criteria.
+    /// The items returned by the query
     /// </summary>
-    public List<AuditRecord> Records { get; set; } = new();
+    [JsonPropertyName("items")]
+    public List<Dictionary<string, object>> Items { get; set; } = new();
 
     /// <summary>
-    /// Token used for retrieving the next page of results.
-    /// Null if there are no more records to fetch.
+    /// The last evaluated key for pagination
     /// </summary>
-    public string? ContinuationToken { get; set; }
+    [JsonPropertyName("lastEvaluatedKey")]
+    public Dictionary<string, object>? LastEvaluatedKey { get; set; }
 
     /// <summary>
-    /// Indicates whether there are more records available beyond the current page.
+    /// The number of items returned
     /// </summary>
-    public bool HasMoreRecords { get; set; }
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
 
     /// <summary>
-    /// Total number of records matching the query criteria.
+    /// The number of items scanned
     /// </summary>
-    public int TotalRecords { get; set; }
+    [JsonPropertyName("scannedCount")]
+    public int ScannedCount { get; set; }
+
+    /// <summary>
+    /// The consumed capacity information
+    /// </summary>
+    [JsonPropertyName("consumedCapacity")]
+    public object? ConsumedCapacity { get; set; }
 }
 
 /// <summary>

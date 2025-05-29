@@ -4,8 +4,30 @@ using DynamoDBProcessor.Services;
 using FluentValidation;
 using Amazon.DynamoDBv2.Model;
 using System.Text.Json;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
+using QueryResponse = DynamoDBProcessor.Models.QueryResponse;
+using Swashbuckle.AspNetCore.Filters;
 
 namespace DynamoDBProcessor.Controllers;
+
+/// <summary>
+/// Response classes for the QueryController
+/// </summary>
+public class ValidationErrorResponse
+{
+    public List<ValidationError> Errors { get; set; } = new();
+}
+
+public class ValidationError
+{
+    public string Field { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+}
+
+public class ErrorResponse
+{
+    public string Message { get; set; } = string.Empty;
+}
 
 /// <summary>
 /// Controller for handling DynamoDB query operations.
@@ -21,6 +43,7 @@ public class QueryController : ControllerBase
     private readonly IValidator<QueryRequest> _validator;
     private readonly IQueryExecutor _queryExecutor;
     private readonly ILogger<QueryController> _logger;
+    private readonly IMetricsService _metricsService;
 
     /// <summary>
     /// Initializes a new instance of the QueryController.
@@ -29,57 +52,54 @@ public class QueryController : ControllerBase
     /// <param name="validator">Validator for query request validation</param>
     /// <param name="queryExecutor">Executor for executing queries</param>
     /// <param name="logger">Logger for logging</param>
+    /// <param name="metricsService">Service for recording metrics</param>
     public QueryController(
         IDynamoDBService dynamoDbService,
         IValidator<QueryRequest> validator,
         IQueryExecutor queryExecutor,
-        ILogger<QueryController> logger)
+        ILogger<QueryController> logger,
+        IMetricsService metricsService)
     {
         _dynamoDbService = dynamoDbService;
         _validator = validator;
         _queryExecutor = queryExecutor;
         _logger = logger;
+        _metricsService = metricsService;
     }
 
     /// <summary>
-    /// Executes a basic query against DynamoDB.
+    /// Queries records from DynamoDB based on the provided request parameters
     /// </summary>
     /// <param name="request">The query request containing search criteria</param>
-    /// <returns>Query results matching the criteria</returns>
+    /// <returns>A response containing the matching records and pagination information</returns>
     /// <response code="200">Returns the query results</response>
     /// <response code="400">If the request is invalid</response>
     /// <response code="500">If there was an internal server error</response>
     [HttpPost]
-    [ProducesResponseType(typeof(QueryResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ValidationErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<QueryResponse>> Query([FromBody] QueryRequest request)
+    [ProducesResponseType(typeof(DynamoQueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    [SwaggerRequestExample(typeof(DynamoQueryRequest), typeof(DynamoQueryRequestExample))]
+    [SwaggerResponseExample(StatusCodes.Status200OK, typeof(DynamoQueryResponseExample))]
+    public async Task<ActionResult<DynamoQueryResponse>> Query([FromBody] DynamoQueryRequest request)
     {
-        var validationResult = await _validator.ValidateAsync(request);
-        if (!validationResult.IsValid)
-        {
-            return BadRequest(new ValidationErrorResponse
-            {
-                Errors = validationResult.Errors.Select(e => new ValidationError
-                {
-                    Field = e.PropertyName,
-                    Message = e.ErrorMessage
-                })
-            });
-        }
-
         try
         {
+            _logger.LogInformation("Processing query request for table: {TableName}", request.TableName);
+            _metricsService.RecordCount("query_requests", 1);
+
             var response = await _dynamoDbService.QueryRecordsAsync(request);
+
+            _logger.LogInformation("Query completed successfully. Items returned: {Count}", response.Count);
+            _metricsService.RecordCount("query_success", 1);
+
             return Ok(response);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error executing query");
-            return StatusCode(500, new ErrorResponse
-            {
-                Message = "An error occurred while processing your request."
-            });
+            _logger.LogError(ex, "Error processing query request: {Message}", ex.Message);
+            _metricsService.RecordError("query_error", ex);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while processing your request" });
         }
     }
 
@@ -96,7 +116,7 @@ public class QueryController : ControllerBase
     /// <response code="429">If the request is throttled</response>
     /// <response code="500">If there was an internal server error</response>
     [HttpPost("paginated")]
-    [ProducesResponseType(typeof(PaginatedQueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DynamoPaginatedQueryResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
@@ -182,7 +202,7 @@ public class QueryController : ControllerBase
     /// <response code="429">If the request is throttled</response>
     /// <response code="500">If there was an internal server error</response>
     [HttpPost("all")]
-    [ProducesResponseType(typeof(PaginatedQueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DynamoPaginatedQueryResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status429TooManyRequests)]
@@ -236,22 +256,5 @@ public class QueryController : ControllerBase
                 Message = "An error occurred while processing your request."
             });
         }
-    }
-}
-
-public class ValidationErrorResponse
-{
-    public List<ValidationError> Errors { get; set; } = new();
-}
-
-public class ValidationError
-{
-    public string Field { get; set; } = string.Empty;
-    public string Message { get; set; } = string.Empty;
-}
-
-public class ErrorResponse
-{
-    public string Message { get; set; } = string.Empty;
     }
 } 

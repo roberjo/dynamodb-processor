@@ -127,7 +127,7 @@ public class QueryExecutorTests
             }
         };
 
-        var cachedResponse = new PaginatedQueryResponse
+        var cachedResponse = new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
             {

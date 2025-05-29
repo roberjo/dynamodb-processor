@@ -22,6 +22,8 @@
     <PackageReference Include="FluentAssertions" Version="6.12.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.AwsCloudWatch" Version="4.4.42" />
+    <PackageReference Include="AWSSDK.Core" Version="4.0.0.5" />
   </ItemGroup>
 
   <ItemGroup>

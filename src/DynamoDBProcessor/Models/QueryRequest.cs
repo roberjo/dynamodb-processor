@@ -1,51 +1,87 @@
-using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace DynamoDBProcessor.Models;
 
 /// <summary>
-/// Represents a request to query audit records from DynamoDB.
-/// Contains the necessary parameters to filter and paginate the results.
+/// Represents a request to query DynamoDB records
 /// </summary>
-public class QueryRequest
+public class DynamoQueryRequest
 {
     /// <summary>
-    /// The unique identifier of the user whose audit records are being queried.
-    /// Required field that maps to the partition key in DynamoDB.
+    /// The name of the table to query
     /// </summary>
-    [Required]
-    public string UserId { get; set; } = string.Empty;
+    [JsonPropertyName("tableName")]
+    public string TableName { get; set; } = string.Empty;
 
     /// <summary>
-    /// The start date for filtering audit records.
-    /// Required field that helps define the time range for the query.
+    /// The partition key value to query
     /// </summary>
-    [Required]
-    public DateTime StartDate { get; set; }
+    [JsonPropertyName("partitionKeyValue")]
+    public string PartitionKeyValue { get; set; } = string.Empty;
 
     /// <summary>
-    /// The end date for filtering audit records.
-    /// Required field that helps define the time range for the query.
+    /// Optional sort key value to query
     /// </summary>
-    [Required]
-    public DateTime EndDate { get; set; }
+    [JsonPropertyName("sortKeyValue")]
+    public string? SortKeyValue { get; set; }
 
     /// <summary>
-    /// The identifier of the system being audited.
-    /// Required field that helps filter records by system.
+    /// Optional sort key comparison operator (e.g., "begins_with", "between", ">", "<", etc.)
     /// </summary>
-    [Required]
-    public string SystemId { get; set; } = string.Empty;
+    [JsonPropertyName("sortKeyOperator")]
+    public string? SortKeyOperator { get; set; }
 
     /// <summary>
-    /// The identifier of the resource being audited.
-    /// Required field that helps filter records by resource.
+    /// Optional filter expression to apply to the query results
     /// </summary>
-    [Required]
-    public string ResourceId { get; set; } = string.Empty;
+    [JsonPropertyName("filterExpression")]
+    public string? FilterExpression { get; set; }
 
     /// <summary>
-    /// Optional token used for pagination of query results.
-    /// When present, indicates the starting point for the next page of results.
+    /// Optional expression attribute values for the filter expression
     /// </summary>
-    public string? ContinuationToken { get; set; }
+    [JsonPropertyName("expressionAttributeValues")]
+    public Dictionary<string, object>? ExpressionAttributeValues { get; set; }
+
+    /// <summary>
+    /// Optional limit on the number of items to return
+    /// </summary>
+    [JsonPropertyName("limit")]
+    public int? Limit { get; set; }
+
+    /// <summary>
+    /// Optional exclusive start key for pagination
+    /// </summary>
+    [JsonPropertyName("exclusiveStartKey")]
+    public Dictionary<string, object>? ExclusiveStartKey { get; set; }
+
+    /// <summary>
+    /// Optional flag to scan index forward (default is true)
+    /// </summary>
+    [JsonPropertyName("scanIndexForward")]
+    public bool? ScanIndexForward { get; set; }
+
+    /// <summary>
+    /// Optional flag to enable consistent reads (default is false)
+    /// </summary>
+    [JsonPropertyName("consistentRead")]
+    public bool? ConsistentRead { get; set; }
+
+    /// <summary>
+    /// Optional flag to return consumed capacity information
+    /// </summary>
+    [JsonPropertyName("returnConsumedCapacity")]
+    public string? ReturnConsumedCapacity { get; set; }
+
+    /// <summary>
+    /// Optional projection expression to specify which attributes to return
+    /// </summary>
+    [JsonPropertyName("projectionExpression")]
+    public string? ProjectionExpression { get; set; }
+
+    /// <summary>
+    /// Optional expression attribute names for the projection expression
+    /// </summary>
+    [JsonPropertyName("expressionAttributeNames")]
+    public Dictionary<string, string>? ExpressionAttributeNames { get; set; }
 } 

@@ -1,13 +1,14 @@
 using Amazon.DynamoDBv2.Model;
 using Swashbuckle.AspNetCore.Filters;
+using DynamoDBProcessor.Models;
 
 namespace DynamoDBProcessor.Examples;
 
-public class QueryRequestExample : IExamplesProvider<QueryRequest>
+public class QueryRequestExample : IExamplesProvider<Amazon.DynamoDBv2.Model.QueryRequest>
 {
-    public QueryRequest GetExamples()
+    public Amazon.DynamoDBv2.Model.QueryRequest GetExamples()
     {
-        return new QueryRequest
+        return new Amazon.DynamoDBv2.Model.QueryRequest
         {
             TableName = "UserRecords",
             IndexName = "UserSystemIndex",
@@ -26,11 +27,11 @@ public class QueryRequestExample : IExamplesProvider<QueryRequest>
     }
 }
 
-public class PaginatedQueryResponseExample : IExamplesProvider<PaginatedQueryResponse>
+public class PaginatedQueryResponseExample : IExamplesProvider<DynamoPaginatedQueryResponse>
 {
-    public PaginatedQueryResponse GetExamples()
+    public DynamoPaginatedQueryResponse GetExamples()
     {
-        return new PaginatedQueryResponse
+        return new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
             {
@@ -93,6 +94,71 @@ public class ValidationErrorResponseExample : IExamplesProvider<ValidationErrorR
                     Field = "startDate",
                     Message = "Start date must be before end date."
                 }
+            }
+        };
+    }
+}
+
+public class DynamoQueryRequestExample : IExamplesProvider<DynamoQueryRequest>
+{
+    public DynamoQueryRequest GetExamples()
+    {
+        return new DynamoQueryRequest
+        {
+            TableName = "MyTable",
+            PartitionKeyValue = "user123",
+            SortKeyValue = "2024-01-01",
+            SortKeyOperator = "begins_with",
+            FilterExpression = "attribute_exists(#status) AND #status = :status",
+            ExpressionAttributeValues = new Dictionary<string, object>
+            {
+                { ":status", "active" }
+            },
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }
+            },
+            Limit = 100,
+            ScanIndexForward = true,
+            ConsistentRead = false,
+            ReturnConsumedCapacity = "TOTAL",
+            ProjectionExpression = "#id, #name, #status"
+        };
+    }
+}
+
+public class DynamoQueryResponseExample : IExamplesProvider<DynamoQueryResponse>
+{
+    public DynamoQueryResponse GetExamples()
+    {
+        return new DynamoQueryResponse
+        {
+            Items = new List<Dictionary<string, object>>
+            {
+                new Dictionary<string, object>
+                {
+                    { "id", "item1" },
+                    { "name", "Item One" },
+                    { "status", "active" }
+                },
+                new Dictionary<string, object>
+                {
+                    { "id", "item2" },
+                    { "name", "Item Two" },
+                    { "status", "active" }
+                }
+            },
+            LastEvaluatedKey = new Dictionary<string, object>
+            {
+                { "PK", "user123" },
+                { "SK", "2024-01-01#item2" }
+            },
+            Count = 2,
+            ScannedCount = 2,
+            ConsumedCapacity = new
+            {
+                TableName = "MyTable",
+                CapacityUnits = 0.5
             }
         };
     }
