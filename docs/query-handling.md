@@ -2,7 +2,7 @@
 
 ## Overview
 
-The DynamoDB Processor handles flexible query requests where fields like `userId` and `systemId` can be null. The system is designed to build appropriate queries based on the available fields while maintaining efficient data access patterns.
+The DynamoDB Processor handles flexible query requests where fields like `userId` and `systemId` can be null. The system is designed to build appropriate queries based on the available fields while maintaining efficient data access patterns. The processor implements pagination to handle large result sets and prevent hitting DynamoDB's 1MB data limit.
 
 ## Request Validation
 
@@ -123,7 +123,7 @@ public class QueryBuilder
 
 ## Query Execution
 
-The query execution process includes caching and error handling:
+The query execution process includes caching, error handling, and pagination support:
 
 ```csharp
 public class QueryExecutor
@@ -132,12 +132,15 @@ public class QueryExecutor
     private readonly IMemoryCache _cache;
     private readonly IMetricsService _metrics;
     private readonly ILogger<QueryExecutor> _logger;
+    private const int MaxPageSize = 1000;
 
-    public async Task<QueryResponse> ExecuteQueryAsync(QueryRequest request)
+    public async Task<PaginatedQueryResponse> ExecuteQueryAsync(
+        QueryRequest request,
+        Dictionary<string, AttributeValue> lastEvaluatedKey = null)
     {
-        var cacheKey = GenerateCacheKey(request);
+        var cacheKey = GenerateCacheKey(request, lastEvaluatedKey);
         
-        if (_cache.TryGetValue(cacheKey, out QueryResponse cachedResponse))
+        if (_cache.TryGetValue(cacheKey, out PaginatedQueryResponse cachedResponse))
         {
             _metrics.RecordCountAsync("CacheHit", 1);
             return cachedResponse;
@@ -146,12 +149,27 @@ public class QueryExecutor
         try
         {
             var queryRequest = _queryBuilder.BuildQuery(request);
+            queryRequest.Limit = MaxPageSize;
+            
+            if (lastEvaluatedKey != null)
+            {
+                queryRequest.ExclusiveStartKey = lastEvaluatedKey;
+            }
+
             var response = await _dynamoDB.QueryAsync(queryRequest);
             
-            _cache.Set(cacheKey, response, TimeSpan.FromMinutes(5));
+            var paginatedResponse = new PaginatedQueryResponse
+            {
+                Items = response.Items,
+                LastEvaluatedKey = response.LastEvaluatedKey,
+                HasMoreResults = response.LastEvaluatedKey != null,
+                TotalItems = response.Items.Count
+            };
+
+            _cache.Set(cacheKey, paginatedResponse, TimeSpan.FromMinutes(5));
             _metrics.RecordCountAsync("CacheMiss", 1);
             
-            return response;
+            return paginatedResponse;
         }
         catch (Exception ex)
         {
@@ -161,7 +179,44 @@ public class QueryExecutor
         }
     }
 
-    private string GenerateCacheKey(QueryRequest request)
+    public async Task<PaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
+        QueryRequest request,
+        int maxItems = 10000)
+    {
+        var allItems = new List<Dictionary<string, AttributeValue>>();
+        Dictionary<string, AttributeValue> lastEvaluatedKey = null;
+        int totalItems = 0;
+
+        do
+        {
+            var response = await ExecuteQueryAsync(request, lastEvaluatedKey);
+            allItems.AddRange(response.Items);
+            lastEvaluatedKey = response.LastEvaluatedKey;
+            totalItems += response.Items.Count;
+
+            if (totalItems >= maxItems)
+            {
+                break;
+            }
+
+            if (lastEvaluatedKey != null)
+            {
+                await Task.Delay(100);
+            }
+        } while (lastEvaluatedKey != null);
+
+        return new PaginatedQueryResponse
+        {
+            Items = allItems,
+            LastEvaluatedKey = lastEvaluatedKey,
+            HasMoreResults = lastEvaluatedKey != null,
+            TotalItems = totalItems
+        };
+    }
+
+    private string GenerateCacheKey(
+        QueryRequest request,
+        Dictionary<string, AttributeValue> lastEvaluatedKey)
     {
         var keyParts = new List<string>
         {
@@ -172,6 +227,14 @@ public class QueryExecutor
             request.ResourceId ?? "null"
         };
 
+        if (lastEvaluatedKey != null)
+        {
+            foreach (var key in lastEvaluatedKey.OrderBy(k => k.Key))
+            {
+                keyParts.Add($"{key.Key}:{key.Value.S ?? key.Value.N}");
+            }
+        }
+
         return string.Join("|", keyParts);
     }
 }
@@ -179,23 +242,32 @@ public class QueryExecutor
 
 ## Supported Query Patterns
 
-The system supports the following query patterns:
+The system supports the following query patterns with pagination:
 
-1. **User ID Only**
+1. **User ID Only (Paginated)**
    ```json
    {
      "userId": "user123"
    }
    ```
+   Response:
+   ```json
+   {
+     "items": [...],
+     "lastEvaluatedKey": "eyJ1c2VySWQiOiJ1c2VyMTIzIiwidGltZXN0YW1wIjoiMjAyNC0wMS0wMVQwMDowMDowMFoifQ==",
+     "hasMoreResults": true,
+     "totalItems": 1000
+   }
+   ```
 
-2. **System ID Only**
+2. **System ID Only (Paginated)**
    ```json
    {
      "systemId": "system456"
    }
    ```
 
-3. **User ID + System ID**
+3. **User ID + System ID (Paginated)**
    ```json
    {
      "userId": "user123",
@@ -203,7 +275,7 @@ The system supports the following query patterns:
    }
    ```
 
-4. **User ID + Date Range**
+4. **User ID + Date Range (Paginated)**
    ```json
    {
      "userId": "user123",
@@ -212,7 +284,7 @@ The system supports the following query patterns:
    }
    ```
 
-5. **System ID + Date Range**
+5. **System ID + Date Range (Paginated)**
    ```json
    {
      "systemId": "system456",
@@ -221,7 +293,7 @@ The system supports the following query patterns:
    }
    ```
 
-6. **All Fields**
+6. **All Fields (Paginated)**
    ```json
    {
      "userId": "user123",
@@ -241,18 +313,26 @@ The system supports the following query patterns:
 
 2. **Caching Strategy**
    - Caches query results for 5 minutes
-   - Uses composite cache keys
+   - Uses composite cache keys including pagination state
    - Implements cache invalidation
 
-3. **Error Handling**
+3. **Pagination Strategy**
+   - Default page size of 1000 items
+   - Configurable through API parameters
+   - Handles LastEvaluatedKey properly
+   - Implements result concatenation for large datasets
+
+4. **Error Handling**
    - Validates request before execution
    - Handles DynamoDB errors gracefully
    - Provides meaningful error messages
+   - Implements retry logic for throttling
 
-4. **Monitoring**
+5. **Monitoring**
    - Tracks query performance
    - Monitors cache hit/miss rates
    - Records error rates
+   - Tracks pagination metrics
 
 ## Best Practices
 
@@ -260,18 +340,28 @@ The system supports the following query patterns:
    - Use appropriate indexes
    - Minimize filter expressions
    - Optimize key conditions
+   - Implement proper pagination
 
 2. **Caching**
    - Use appropriate TTL
    - Implement cache invalidation
    - Monitor cache performance
+   - Cache paginated results
 
-3. **Error Handling**
+3. **Pagination**
+   - Use consistent page sizes
+   - Handle LastEvaluatedKey properly
+   - Implement proper error handling
+   - Add delays between requests
+
+4. **Error Handling**
    - Validate input thoroughly
    - Handle errors gracefully
    - Provide clear error messages
+   - Implement retry logic
 
-4. **Monitoring**
+5. **Monitoring**
    - Track query patterns
    - Monitor performance
-   - Alert on issues 
+   - Alert on issues
+   - Track pagination metrics 
