@@ -30,7 +30,7 @@ public class QueryBuilderTests
         // Assert
         result.Should().NotBeNull();
         result.TableName.Should().Be("DynamoDBProcessor");
-        result.IndexName.Should().Be("UserIdIndex");
+        result.IndexName.Should().Be("UserIndex");
         result.KeyConditionExpression.Should().Be("userId = :userId");
         result.ExpressionAttributeValues.Should().ContainKey(":userId");
         result.ExpressionAttributeValues[":userId"].S.Should().Be("test-user");
@@ -51,7 +51,7 @@ public class QueryBuilderTests
         // Assert
         result.Should().NotBeNull();
         result.TableName.Should().Be("DynamoDBProcessor");
-        result.IndexName.Should().Be("SystemIdIndex");
+        result.IndexName.Should().Be("SystemIndex");
         result.KeyConditionExpression.Should().Be("systemId = :systemId");
         result.ExpressionAttributeValues.Should().ContainKey(":systemId");
         result.ExpressionAttributeValues[":systemId"].S.Should().Be("test-system");
@@ -73,6 +73,7 @@ public class QueryBuilderTests
         // Assert
         result.Should().NotBeNull();
         result.TableName.Should().Be("DynamoDBProcessor");
+        result.IndexName.Should().Be("UserSystemIndex");
         result.KeyConditionExpression.Should().Be("userId = :userId AND systemId = :systemId");
         result.ExpressionAttributeValues.Should().ContainKey(":userId");
         result.ExpressionAttributeValues.Should().ContainKey(":systemId");
@@ -97,30 +98,44 @@ public class QueryBuilderTests
         // Assert
         result.Should().NotBeNull();
         result.TableName.Should().Be("DynamoDBProcessor");
+        result.IndexName.Should().Be("UserIndex");
         result.KeyConditionExpression.Should().Be("userId = :userId");
-        result.FilterExpression.Should().Be("timestamp BETWEEN :startDate AND :endDate");
+        result.FilterExpression.Should().Be("timestamp >= :startDate AND timestamp <= :endDate");
         result.ExpressionAttributeValues.Should().ContainKey(":startDate");
         result.ExpressionAttributeValues.Should().ContainKey(":endDate");
     }
 
     [Fact]
-    public void BuildQuery_WithInvalidRequest_ThrowsArgumentException()
-    {
-        // Arrange
-        var request = new QueryRequest();
-
-        // Act & Assert
-        Assert.Throws<ArgumentException>(() => _queryBuilder.BuildQuery(request));
-    }
-
-    [Fact]
-    public void BuildQuery_WithPageSize_ReturnsCorrectQuery()
+    public void BuildQuery_WithResourceId_ReturnsCorrectQuery()
     {
         // Arrange
         var request = new QueryRequest
         {
             UserId = "test-user",
-            PageSize = 50
+            ResourceId = "test-resource"
+        };
+
+        // Act
+        var result = _queryBuilder.BuildQuery(request);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.TableName.Should().Be("DynamoDBProcessor");
+        result.IndexName.Should().Be("UserIndex");
+        result.KeyConditionExpression.Should().Be("userId = :userId");
+        result.FilterExpression.Should().Be("resourceId = :resourceId");
+        result.ExpressionAttributeValues.Should().ContainKey(":resourceId");
+        result.ExpressionAttributeValues[":resourceId"].S.Should().Be("test-resource");
+    }
+
+    [Fact]
+    public void BuildQuery_WithLimit_ReturnsCorrectQuery()
+    {
+        // Arrange
+        var request = new QueryRequest
+        {
+            UserId = "test-user",
+            Limit = 50
         };
 
         // Act
@@ -132,36 +147,17 @@ public class QueryBuilderTests
     }
 
     [Fact]
-    public void BuildQuery_WithLastEvaluatedKey_ReturnsCorrectQuery()
-    {
-        // Arrange
-        var request = new QueryRequest
-        {
-            UserId = "test-user"
-        };
-
-        var lastEvaluatedKey = new Dictionary<string, AttributeValue>
-        {
-            { "userId", new AttributeValue { S = "test-user" } },
-            { "timestamp", new AttributeValue { N = "1234567890" } }
-        };
-
-        // Act
-        var result = _queryBuilder.BuildQuery(request, lastEvaluatedKey);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.ExclusiveStartKey.Should().BeEquivalentTo(lastEvaluatedKey);
-    }
-
-    [Fact]
-    public void BuildQuery_WithProjectionExpression_ReturnsCorrectQuery()
+    public void BuildQuery_WithExclusiveStartKey_ReturnsCorrectQuery()
     {
         // Arrange
         var request = new QueryRequest
         {
             UserId = "test-user",
-            ProjectionExpression = "userId, systemId, timestamp"
+            ExclusiveStartKey = new Dictionary<string, object>
+            {
+                { "userId", "test-user" },
+                { "timestamp", 1234567890 }
+            }
         };
 
         // Act
@@ -169,6 +165,26 @@ public class QueryBuilderTests
 
         // Assert
         result.Should().NotBeNull();
-        result.ProjectionExpression.Should().Be("userId, systemId, timestamp");
+        result.ExclusiveStartKey.Should().NotBeNull();
+        result.ExclusiveStartKey.Should().ContainKey("userId");
+        result.ExclusiveStartKey.Should().ContainKey("timestamp");
+    }
+
+    [Fact]
+    public void BuildQuery_WithScanIndexForward_ReturnsCorrectQuery()
+    {
+        // Arrange
+        var request = new QueryRequest
+        {
+            UserId = "test-user",
+            ScanIndexForward = false
+        };
+
+        // Act
+        var result = _queryBuilder.BuildQuery(request);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.ScanIndexForward.Should().BeFalse();
     }
 } 

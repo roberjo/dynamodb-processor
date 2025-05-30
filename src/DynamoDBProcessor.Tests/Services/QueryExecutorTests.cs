@@ -16,6 +16,7 @@ public class QueryExecutorTests
     private readonly Mock<IMemoryCache> _mockCache;
     private readonly Mock<IMetricsService> _mockMetrics;
     private readonly Mock<ILogger<QueryExecutor>> _mockLogger;
+    private readonly Mock<QueryBuilder> _mockQueryBuilder;
     private readonly QueryExecutor _queryExecutor;
 
     public QueryExecutorTests()
@@ -24,7 +25,14 @@ public class QueryExecutorTests
         _mockCache = new Mock<IMemoryCache>();
         _mockMetrics = new Mock<IMetricsService>();
         _mockLogger = new Mock<ILogger<QueryExecutor>>();
-        _queryExecutor = new QueryExecutor(_mockDynamoDb.Object, _mockCache.Object, _mockMetrics.Object, _mockLogger.Object);
+        _mockQueryBuilder = new Mock<QueryBuilder>();
+        
+        _queryExecutor = new QueryExecutor(
+            _mockDynamoDb.Object,
+            _mockCache.Object,
+            _mockMetrics.Object,
+            _mockLogger.Object,
+            _mockQueryBuilder.Object);
     }
 
     [Fact]
@@ -33,7 +41,13 @@ public class QueryExecutorTests
         // Arrange
         var request = new QueryRequest
         {
-            TableName = "TestTable",
+            UserId = "test-user"
+        };
+
+        var dynamoRequest = new Amazon.DynamoDBv2.Model.QueryRequest
+        {
+            TableName = "DynamoDBProcessor",
+            IndexName = "UserIndex",
             KeyConditionExpression = "userId = :userId",
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -54,7 +68,10 @@ public class QueryExecutorTests
             LastEvaluatedKey = null
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockQueryBuilder.Setup(x => x.BuildQuery(It.IsAny<QueryRequest>()))
+            .Returns(dynamoRequest);
+
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
         // Act
@@ -65,6 +82,7 @@ public class QueryExecutorTests
         result.Items.Should().HaveCount(1);
         result.HasMoreResults.Should().BeFalse();
         result.LastEvaluatedKey.Should().BeNull();
+        result.TotalItems.Should().Be(1);
     }
 
     [Fact]
@@ -73,7 +91,13 @@ public class QueryExecutorTests
         // Arrange
         var request = new QueryRequest
         {
-            TableName = "TestTable",
+            UserId = "test-user"
+        };
+
+        var dynamoRequest = new Amazon.DynamoDBv2.Model.QueryRequest
+        {
+            TableName = "DynamoDBProcessor",
+            IndexName = "UserIndex",
             KeyConditionExpression = "userId = :userId",
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -100,7 +124,10 @@ public class QueryExecutorTests
             LastEvaluatedKey = lastEvaluatedKey
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockQueryBuilder.Setup(x => x.BuildQuery(It.IsAny<QueryRequest>()))
+            .Returns(dynamoRequest);
+
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
         // Act
@@ -111,6 +138,8 @@ public class QueryExecutorTests
         result.Items.Should().HaveCount(1);
         result.HasMoreResults.Should().BeTrue();
         result.LastEvaluatedKey.Should().BeEquivalentTo(lastEvaluatedKey);
+        result.TotalItems.Should().Be(1);
+        result.ContinuationToken.Should().NotBeNull();
     }
 
     [Fact]
@@ -119,12 +148,7 @@ public class QueryExecutorTests
         // Arrange
         var request = new QueryRequest
         {
-            TableName = "TestTable",
-            KeyConditionExpression = "userId = :userId",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":userId", new AttributeValue { S = "test-user" } }
-            }
+            UserId = "test-user"
         };
 
         var cachedResponse = new DynamoPaginatedQueryResponse
@@ -137,7 +161,8 @@ public class QueryExecutorTests
                     { "data", new AttributeValue { S = "cached-data" } }
                 }
             },
-            HasMoreResults = false
+            HasMoreResults = false,
+            TotalItems = 1
         };
 
         object cachedValue = cachedResponse;
@@ -149,7 +174,8 @@ public class QueryExecutorTests
 
         // Assert
         result.Should().BeEquivalentTo(cachedResponse);
-        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<QueryRequest>(), default), Times.Never);
+        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default), Times.Never);
+        _mockMetrics.Verify(x => x.RecordCountAsync("CacheHit", 1), Times.Once);
     }
 
     [Fact]
@@ -158,7 +184,13 @@ public class QueryExecutorTests
         // Arrange
         var request = new QueryRequest
         {
-            TableName = "TestTable",
+            UserId = "test-user"
+        };
+
+        var dynamoRequest = new Amazon.DynamoDBv2.Model.QueryRequest
+        {
+            TableName = "DynamoDBProcessor",
+            IndexName = "UserIndex",
             KeyConditionExpression = "userId = :userId",
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -178,7 +210,10 @@ public class QueryExecutorTests
             }
         };
 
-        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockQueryBuilder.Setup(x => x.BuildQuery(It.IsAny<QueryRequest>()))
+            .Returns(dynamoRequest);
+
+        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ThrowsAsync(new ProvisionedThroughputExceededException("Throttling"))
             .ReturnsAsync(expectedResponse);
 
@@ -188,7 +223,8 @@ public class QueryExecutorTests
         // Assert
         result.Should().NotBeNull();
         result.Items.Should().HaveCount(1);
-        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<QueryRequest>(), default), Times.Exactly(2));
+        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default), Times.Exactly(2));
+        _mockMetrics.Verify(x => x.RecordCountAsync("QueryThrottledRetry", 1), Times.Once);
     }
 
     [Fact]
@@ -197,7 +233,13 @@ public class QueryExecutorTests
         // Arrange
         var request = new QueryRequest
         {
-            TableName = "TestTable",
+            UserId = "test-user"
+        };
+
+        var dynamoRequest = new Amazon.DynamoDBv2.Model.QueryRequest
+        {
+            TableName = "DynamoDBProcessor",
+            IndexName = "UserIndex",
             KeyConditionExpression = "userId = :userId",
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -229,7 +271,10 @@ public class QueryExecutorTests
             }
         };
 
-        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockQueryBuilder.Setup(x => x.BuildQuery(It.IsAny<QueryRequest>()))
+            .Returns(dynamoRequest);
+
+        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(response1)
             .ReturnsAsync(response2);
 
@@ -240,6 +285,7 @@ public class QueryExecutorTests
         result.Should().NotBeNull();
         result.Items.Should().HaveCount(2);
         result.HasMoreResults.Should().BeTrue();
-        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<QueryRequest>(), default), Times.Once);
+        result.TotalItems.Should().Be(2);
+        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default), Times.Once);
     }
 } 

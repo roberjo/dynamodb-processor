@@ -7,20 +7,31 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 using FluentAssertions;
+using FluentValidation;
+using FluentValidation.Results;
 
 namespace DynamoDBProcessor.Tests.Controllers;
 
 public class QueryControllerTests
 {
+    private readonly Mock<IValidator<QueryRequest>> _mockValidator;
     private readonly Mock<IQueryExecutor> _mockQueryExecutor;
     private readonly Mock<ILogger<QueryController>> _mockLogger;
+    private readonly Mock<IMetricsService> _mockMetricsService;
     private readonly QueryController _controller;
 
     public QueryControllerTests()
     {
+        _mockValidator = new Mock<IValidator<QueryRequest>>();
         _mockQueryExecutor = new Mock<IQueryExecutor>();
         _mockLogger = new Mock<ILogger<QueryController>>();
-        _controller = new QueryController(_mockQueryExecutor.Object, _mockLogger.Object);
+        _mockMetricsService = new Mock<IMetricsService>();
+        
+        _controller = new QueryController(
+            _mockValidator.Object,
+            _mockQueryExecutor.Object,
+            _mockLogger.Object,
+            _mockMetricsService.Object);
     }
 
     [Fact]
@@ -32,6 +43,9 @@ public class QueryControllerTests
             UserId = "test-user"
         };
 
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult());
+
         var expectedResponse = new DynamoPaginatedQueryResponse
         {
             Items = new List<Dictionary<string, AttributeValue>>
@@ -42,7 +56,8 @@ public class QueryControllerTests
                     { "data", new AttributeValue { S = "test-data" } }
                 }
             },
-            HasMoreResults = false
+            HasMoreResults = false,
+            TotalItems = 1
         };
 
         _mockQueryExecutor.Setup(x => x.ExecuteQueryAsync(It.IsAny<QueryRequest>(), null))
@@ -58,6 +73,30 @@ public class QueryControllerTests
     }
 
     [Fact]
+    public async Task QueryPaginated_WithInvalidRequest_ReturnsBadRequest()
+    {
+        // Arrange
+        var request = new QueryRequest();
+        var validationFailures = new List<ValidationFailure>
+        {
+            new("UserId", "Either UserId or SystemId must be provided")
+        };
+
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult(validationFailures));
+
+        // Act
+        var result = await _controller.QueryPaginated(request);
+
+        // Assert
+        result.Should().BeOfType<BadRequestObjectResult>();
+        var badRequestResult = result as BadRequestObjectResult;
+        var response = badRequestResult?.Value as ValidationErrorResponse;
+        response?.Errors.Should().HaveCount(1);
+        response?.Errors[0].Field.Should().Be("UserId");
+    }
+
+    [Fact]
     public async Task QueryPaginated_WithContinuationToken_ReturnsOkResult()
     {
         // Arrange
@@ -65,6 +104,9 @@ public class QueryControllerTests
         {
             UserId = "test-user"
         };
+
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult());
 
         var continuationToken = "eyJ1c2VySWQiOiJ0ZXN0LXVzZXIiLCJ0aW1lc3RhbXAiOjEyMzQ1Njc4OTB9";
 
@@ -79,7 +121,8 @@ public class QueryControllerTests
                 }
             },
             HasMoreResults = true,
-            ContinuationToken = "next-token"
+            ContinuationToken = "next-token",
+            TotalItems = 1
         };
 
         _mockQueryExecutor.Setup(x => x.ExecuteQueryAsync(It.IsAny<QueryRequest>(), It.IsAny<Dictionary<string, AttributeValue>>()))
@@ -102,6 +145,9 @@ public class QueryControllerTests
         {
             UserId = "test-user"
         };
+
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult());
 
         var expectedResponse = new DynamoPaginatedQueryResponse
         {
@@ -138,6 +184,9 @@ public class QueryControllerTests
             UserId = "test-user"
         };
 
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult());
+
         var invalidToken = "invalid-token";
 
         // Act
@@ -145,6 +194,9 @@ public class QueryControllerTests
 
         // Assert
         result.Should().BeOfType<BadRequestObjectResult>();
+        var badRequestResult = result as BadRequestObjectResult;
+        var response = badRequestResult?.Value as ErrorResponse;
+        response?.Message.Should().Be("Invalid continuation token");
     }
 
     [Fact]
@@ -155,6 +207,9 @@ public class QueryControllerTests
         {
             UserId = "test-user"
         };
+
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult());
 
         _mockQueryExecutor.Setup(x => x.ExecuteQueryAsync(It.IsAny<QueryRequest>(), null))
             .ThrowsAsync(new ProvisionedThroughputExceededException("Throttling"));
@@ -176,6 +231,9 @@ public class QueryControllerTests
         {
             UserId = "test-user"
         };
+
+        _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
+            .ReturnsAsync(new ValidationResult());
 
         var maxItems = 100;
 
