@@ -11,39 +11,27 @@ public class QueryRequestValidator : AbstractValidator<QueryRequest>
 {
     public QueryRequestValidator()
     {
-        // Validate UserId: required and not too long
         RuleFor(x => x.UserId)
             .NotEmpty()
-            .MaximumLength(100);
+            .When(x => string.IsNullOrEmpty(x.SystemId))
+            .WithMessage("Either UserId or SystemId must be provided");
 
-        // Validate SystemId: required and not too long
         RuleFor(x => x.SystemId)
             .NotEmpty()
-            .MaximumLength(100);
+            .When(x => string.IsNullOrEmpty(x.UserId))
+            .WithMessage("Either UserId or SystemId must be provided");
 
-        // Validate ResourceId: required and not too long
-        RuleFor(x => x.ResourceId)
-            .NotEmpty()
-            .MaximumLength(100);
-
-        // Validate StartDate:
-        // - Required
-        // - Must be before or equal to EndDate
-        // - Cannot be more than 1 year in the past
         RuleFor(x => x.StartDate)
             .NotEmpty()
-            .LessThanOrEqualTo(x => x.EndDate)
-            .Must(date => date.Date >= DateTime.UtcNow.AddYears(-1).Date)
-            .WithMessage("Start date cannot be more than 1 year in the past");
+            .When(x => x.EndDate != null)
+            .WithMessage("StartDate is required when EndDate is provided");
 
-        // Validate EndDate:
-        // - Required
-        // - Must be after or equal to StartDate
-        // - Cannot be in the future
         RuleFor(x => x.EndDate)
             .NotEmpty()
-            .GreaterThanOrEqualTo(x => x.StartDate)
-            .Must(date => date.Date <= DateTime.UtcNow.Date)
-            .WithMessage("End date cannot be in the future");
+            .When(x => x.StartDate != null)
+            .WithMessage("EndDate is required when StartDate is provided")
+            .GreaterThan(x => x.StartDate)
+            .When(x => x.StartDate != null)
+            .WithMessage("EndDate must be after StartDate");
     }
 } 

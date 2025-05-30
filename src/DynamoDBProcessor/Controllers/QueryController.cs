@@ -39,7 +39,6 @@ public class ErrorResponse
 [Produces("application/json")]
 public class QueryController : ControllerBase
 {
-    private readonly IDynamoDBService _dynamoDbService;
     private readonly IValidator<QueryRequest> _validator;
     private readonly IQueryExecutor _queryExecutor;
     private readonly ILogger<QueryController> _logger;
@@ -48,19 +47,16 @@ public class QueryController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the QueryController.
     /// </summary>
-    /// <param name="dynamoDbService">Service for DynamoDB operations</param>
     /// <param name="validator">Validator for query request validation</param>
     /// <param name="queryExecutor">Executor for executing queries</param>
     /// <param name="logger">Logger for logging</param>
     /// <param name="metricsService">Service for recording metrics</param>
     public QueryController(
-        IDynamoDBService dynamoDbService,
         IValidator<QueryRequest> validator,
         IQueryExecutor queryExecutor,
         ILogger<QueryController> logger,
         IMetricsService metricsService)
     {
-        _dynamoDbService = dynamoDbService;
         _validator = validator;
         _queryExecutor = queryExecutor;
         _logger = logger;
@@ -76,30 +72,77 @@ public class QueryController : ControllerBase
     /// <response code="400">If the request is invalid</response>
     /// <response code="500">If there was an internal server error</response>
     [HttpPost]
-    [ProducesResponseType(typeof(DynamoQueryResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    [SwaggerRequestExample(typeof(DynamoQueryRequest), typeof(DynamoQueryRequestExample))]
-    [SwaggerResponseExample(StatusCodes.Status200OK, typeof(DynamoQueryResponseExample))]
-    public async Task<ActionResult<DynamoQueryResponse>> Query([FromBody] DynamoQueryRequest request)
+    [ProducesResponseType(typeof(DynamoPaginatedQueryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> QueryPaginated(
+        [FromBody] QueryRequest request,
+        [FromQuery] int? pageSize = 1000,
+        [FromQuery] string? continuationToken = null)
     {
         try
         {
-            _logger.LogInformation("Processing query request for table: {TableName}", request.TableName);
-            _metricsService.RecordCount("query_requests", 1);
+            // Validate request
+            var validationResult = await _validator.ValidateAsync(request);
+            if (!validationResult.IsValid)
+            {
+                var errors = validationResult.Errors.Select(e => new ValidationError
+                {
+                    Field = e.PropertyName,
+                    Message = e.ErrorMessage
+                }).ToList();
 
-            var response = await _dynamoDbService.QueryRecordsAsync(request);
+                return BadRequest(new ValidationErrorResponse { Errors = errors });
+            }
 
-            _logger.LogInformation("Query completed successfully. Items returned: {Count}", response.Count);
-            _metricsService.RecordCount("query_success", 1);
+            // Parse continuation token if provided
+            Dictionary<string, AttributeValue>? lastKey = null;
+            if (!string.IsNullOrEmpty(continuationToken))
+            {
+                try
+                {
+                    var tokenBytes = Convert.FromBase64String(continuationToken);
+                    lastKey = JsonSerializer.Deserialize<Dictionary<string, AttributeValue>>(tokenBytes);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Invalid continuation token");
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid continuation token"
+                    });
+                }
+            }
+
+            // Execute query
+            var response = await _queryExecutor.ExecuteQueryAsync(request, lastKey);
 
             return Ok(response);
         }
+        catch (ProvisionedThroughputExceededException ex)
+        {
+            _logger.LogError(ex, "DynamoDB throttling error");
+            return StatusCode(429, new ErrorResponse
+            {
+                Message = "Service temporarily unavailable. Please try again later."
+            });
+        }
+        catch (ResourceNotFoundException ex)
+        {
+            _logger.LogError(ex, "DynamoDB resource not found");
+            return NotFound(new ErrorResponse
+            {
+                Message = "The requested resource was not found."
+            });
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing query request: {Message}", ex.Message);
+            _logger.LogError(ex, "Error executing query");
             _metricsService.RecordError("query_error", ex);
-            return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while processing your request" });
+            return StatusCode(500, new ErrorResponse
+            {
+                Message = "An error occurred while processing your request."
+            });
         }
     }
 

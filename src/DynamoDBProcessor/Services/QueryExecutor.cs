@@ -26,6 +26,7 @@ public class QueryExecutor : IQueryExecutor
     private readonly IMemoryCache _cache;
     private readonly IMetricsService _metrics;
     private readonly ILogger<QueryExecutor> _logger;
+    private readonly QueryBuilder _queryBuilder;
     private const int MaxPageSize = 1000;
     private const int MaxRetries = 3;
     private const int BaseDelayMs = 100;
@@ -36,12 +37,14 @@ public class QueryExecutor : IQueryExecutor
         IAmazonDynamoDB dynamoDB,
         IMemoryCache cache,
         IMetricsService metrics,
-        ILogger<QueryExecutor> logger)
+        ILogger<QueryExecutor> logger,
+        QueryBuilder queryBuilder)
     {
         _dynamoDB = dynamoDB;
         _cache = cache;
         _metrics = metrics;
         _logger = logger;
+        _queryBuilder = queryBuilder;
 
         _retryPolicy = Policy<DynamoPaginatedQueryResponse>
             .Handle<ProvisionedThroughputExceededException>()
@@ -76,14 +79,15 @@ public class QueryExecutor : IQueryExecutor
         {
             try
             {
-                request.Limit = MaxPageSize;
+                var queryRequest = _queryBuilder.BuildQuery(request);
+                queryRequest.Limit = MaxPageSize;
                 
                 if (lastEvaluatedKey != null)
                 {
-                    request.ExclusiveStartKey = lastEvaluatedKey;
+                    queryRequest.ExclusiveStartKey = lastEvaluatedKey;
                 }
 
-                var response = await _dynamoDB.QueryAsync(request);
+                var response = await _dynamoDB.QueryAsync(queryRequest);
                 
                 var paginatedResponse = new DynamoPaginatedQueryResponse
                 {
@@ -158,19 +162,12 @@ public class QueryExecutor : IQueryExecutor
     {
         var keyParts = new List<string>
         {
-            request.TableName,
-            request.IndexName ?? "null",
-            request.KeyConditionExpression ?? "null",
-            request.FilterExpression ?? "null"
+            request.UserId ?? "null",
+            request.SystemId ?? "null",
+            request.StartDate?.ToString("o") ?? "null",
+            request.EndDate?.ToString("o") ?? "null",
+            request.ResourceId ?? "null"
         };
-
-        if (request.ExpressionAttributeValues != null)
-        {
-            foreach (var kvp in request.ExpressionAttributeValues.OrderBy(k => k.Key))
-            {
-                keyParts.Add($"{kvp.Key}:{kvp.Value.S ?? kvp.Value.N ?? "null"}");
-            }
-        }
 
         if (lastEvaluatedKey != null)
         {

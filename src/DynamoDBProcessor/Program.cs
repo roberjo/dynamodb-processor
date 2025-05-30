@@ -10,6 +10,10 @@ using Serilog.Events;
 using Serilog.Exceptions;
 using Serilog.Formatting.Compact;
 using Serilog.Sinks.AwsCloudWatch;
+using Amazon.DynamoDBv2;
+using DynamoDBProcessor.Validators;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -66,12 +70,7 @@ builder.Services.AddVersionedApiExplorer(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
-    {
-        Title = "DynamoDB Processor API",
-        Version = "v1",
-        Description = "API for processing DynamoDB records"
-    });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "DynamoDB Processor API", Version = "v1" });
     c.ExampleFilters();
 });
 builder.Services.AddSwaggerExamplesFromAssemblyOf<Program>();
@@ -80,7 +79,11 @@ builder.Services.AddSwaggerExamplesFromAssemblyOf<Program>();
 builder.Services.AddSingleton<IDynamoDBService, DynamoDBService>();
 builder.Services.AddSingleton<ICacheService, CacheService>();
 builder.Services.AddSingleton<IMetricsService, MetricsService>();
-builder.Services.AddSingleton<IQueryExecutor, QueryExecutor>();
+builder.Services.AddSingleton<QueryBuilder>();
+builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
+
+// Add validators
+builder.Services.AddScoped<IValidator<QueryRequest>, QueryRequestValidator>();
 
 // Configure response caching
 builder.Services.AddResponseCaching();
@@ -99,6 +102,12 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 
+// Add response compression
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
@@ -114,6 +123,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseResponseCaching();
 app.UseRateLimiter();
+app.UseResponseCompression();
 app.UseAuthorization();
 app.MapControllers();
 

@@ -5,43 +5,37 @@ namespace DynamoDBProcessor.Models;
 /// <summary>
 /// Represents a request to query DynamoDB records
 /// </summary>
-public class DynamoQueryRequest
+public class QueryRequest
 {
     /// <summary>
-    /// The name of the table to query
+    /// The user ID to query by
     /// </summary>
-    [JsonPropertyName("tableName")]
-    public string TableName { get; set; } = string.Empty;
+    [JsonPropertyName("userId")]
+    public string? UserId { get; set; }
 
     /// <summary>
-    /// The partition key value to query
+    /// The system ID to query by
     /// </summary>
-    [JsonPropertyName("partitionKeyValue")]
-    public string PartitionKeyValue { get; set; } = string.Empty;
+    [JsonPropertyName("systemId")]
+    public string? SystemId { get; set; }
 
     /// <summary>
-    /// Optional sort key value to query
+    /// The resource ID to filter by
     /// </summary>
-    [JsonPropertyName("sortKeyValue")]
-    public string? SortKeyValue { get; set; }
+    [JsonPropertyName("resourceId")]
+    public string? ResourceId { get; set; }
 
     /// <summary>
-    /// Optional sort key comparison operator (e.g., "begins_with", "between", ">", "<", etc.)
+    /// The start date for filtering records
     /// </summary>
-    [JsonPropertyName("sortKeyOperator")]
-    public string? SortKeyOperator { get; set; }
+    [JsonPropertyName("startDate")]
+    public DateTime? StartDate { get; set; }
 
     /// <summary>
-    /// Optional filter expression to apply to the query results
+    /// The end date for filtering records
     /// </summary>
-    [JsonPropertyName("filterExpression")]
-    public string? FilterExpression { get; set; }
-
-    /// <summary>
-    /// Optional expression attribute values for the filter expression
-    /// </summary>
-    [JsonPropertyName("expressionAttributeValues")]
-    public Dictionary<string, object>? ExpressionAttributeValues { get; set; }
+    [JsonPropertyName("endDate")]
+    public DateTime? EndDate { get; set; }
 
     /// <summary>
     /// Optional limit on the number of items to return
@@ -60,28 +54,4 @@ public class DynamoQueryRequest
     /// </summary>
     [JsonPropertyName("scanIndexForward")]
     public bool? ScanIndexForward { get; set; }
-
-    /// <summary>
-    /// Optional flag to enable consistent reads (default is false)
-    /// </summary>
-    [JsonPropertyName("consistentRead")]
-    public bool? ConsistentRead { get; set; }
-
-    /// <summary>
-    /// Optional flag to return consumed capacity information
-    /// </summary>
-    [JsonPropertyName("returnConsumedCapacity")]
-    public string? ReturnConsumedCapacity { get; set; }
-
-    /// <summary>
-    /// Optional projection expression to specify which attributes to return
-    /// </summary>
-    [JsonPropertyName("projectionExpression")]
-    public string? ProjectionExpression { get; set; }
-
-    /// <summary>
-    /// Optional expression attribute names for the projection expression
-    /// </summary>
-    [JsonPropertyName("expressionAttributeNames")]
-    public Dictionary<string, string>? ExpressionAttributeNames { get; set; }
 } 
