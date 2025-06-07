@@ -52,13 +52,49 @@ function extractToken(authHeader) {
  */
 async function validateToken(token) {
   try {
+    if (!token) {
+      console.warn('No token provided');
+      return null;
+    }
+
     const { payload } = await jwtVerify(token, JWT_SIGNING_KEY, {
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
-      algorithms: ['HS256']
+      algorithms: ['HS256'],
+      clockTolerance: 30, // Allow 30 seconds clock skew
+      maxTokenAge: '1h' // Maximum token age
     });
+
+    // Check if token is expired
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      console.warn('Token has expired');
+      return null;
+    }
+
+    // Check if token is not yet valid
+    if (payload.nbf && payload.nbf > now) {
+      console.warn('Token is not yet valid');
+      return null;
+    }
+
+    // Validate required claims
+    if (!payload.sub) {
+      console.warn('Token missing required subject claim');
+      return null;
+    }
+
     return payload;
   } catch (error) {
+    if (error.code === 'ERR_JWT_EXPIRED') {
+      console.warn('Token has expired');
+    } else if (error.code === 'ERR_JWT_NOT_YET_VALID') {
+      console.warn('Token is not yet valid');
+    } else if (error.code === 'ERR_JWT_INVALID') {
+      console.warn('Invalid token');
+    } else {
+      console.error('Error validating token:', error);
+    }
     return null;
   }
 }

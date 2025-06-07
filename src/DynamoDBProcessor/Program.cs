@@ -125,6 +125,12 @@ app.UseResponseCaching();
 app.UseRateLimiter();
 app.UseResponseCompression();
 app.UseAuthorization();
+
+// Add middleware
+app.UseMiddleware<LimitsMiddleware>();
+app.UseMiddleware<ErrorHandlingMiddleware>();
+app.UseMiddleware<RequestResponseLoggingMiddleware>();
+
 app.MapControllers();
 
 app.Run(); 
