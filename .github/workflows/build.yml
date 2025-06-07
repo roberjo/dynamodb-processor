@@ -23,16 +23,18 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Restore dependencies
+        run: dotnet restore
+
       - name: Lint C#
-        run: dotnet format --verify-no-changes
+        run: |
+          dotnet tool restore
+          dotnet format --verify-no-changes
 
       - name: Lint Terraform
         uses: hashicorp/setup-terraform@v3
       - run: terraform fmt -check -recursive
         working-directory: terraform
-
-      - name: Restore dependencies
-        run: dotnet restore ${{ env.PROJECT_PATH }}
 
       - name: Build Lambda
         run: dotnet publish ${{ env.PROJECT_PATH }} -c Release -o ${{ env.BUILD_DIR }}
