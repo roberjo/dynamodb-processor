@@ -139,14 +139,28 @@ public class DynamoDBService : IDynamoDBService
 
     private AttributeValue ConvertToAttributeValue(object value)
     {
+        if (value == null)
+        {
+            return new AttributeValue { NULL = true };
+        }
+
         return value switch
         {
             string s => new AttributeValue { S = s },
             int i => new AttributeValue { N = i.ToString() },
             long l => new AttributeValue { N = l.ToString() },
             double d => new AttributeValue { N = d.ToString() },
+            decimal d => new AttributeValue { N = d.ToString() },
             bool b => new AttributeValue { BOOL = b },
-            null => new AttributeValue { NULL = true },
+            byte[] bytes => new AttributeValue { B = new MemoryStream(bytes) },
+            List<string> ss => new AttributeValue { SS = ss },
+            List<int> ns => new AttributeValue { NS = ns.Select(n => n.ToString()).ToList() },
+            List<long> ns => new AttributeValue { NS = ns.Select(n => n.ToString()).ToList() },
+            List<double> ns => new AttributeValue { NS = ns.Select(n => n.ToString()).ToList() },
+            List<decimal> ns => new AttributeValue { NS = ns.Select(n => n.ToString()).ToList() },
+            List<byte[]> bs => new AttributeValue { BS = bs.Select(b => new MemoryStream(b)).ToList() },
+            Dictionary<string, object> m => new AttributeValue { M = ConvertToAttributeValues(m) },
+            List<object> l => new AttributeValue { L = l.Select(ConvertToAttributeValue).ToList() },
             _ => new AttributeValue { S = value.ToString() }
         };
     }
@@ -172,15 +186,135 @@ public class DynamoDBService : IDynamoDBService
 
     private object ConvertFromAttributeValue(AttributeValue value)
     {
-        if (value.S != null) return value.S;
-        if (value.N != null) return decimal.Parse(value.N);
-        if (value.BOOL.HasValue) return value.BOOL.Value;
-        if (value.NULL) return null;
-        if (value.SS != null) return value.SS;
-        if (value.NS != null) return value.NS.Select(n => decimal.Parse(n)).ToList();
-        if (value.BS != null) return value.BS;
-        if (value.M != null) return ConvertFromAttributeValues(value.M);
-        if (value.L != null) return value.L.Select(ConvertFromAttributeValue).ToList();
-        return null;
+        if (value.NULL)
+        {
+            return null!;
+        }
+
+        if (value.S != null)
+        {
+            return value.S;
+        }
+
+        if (value.N != null)
+        {
+            if (decimal.TryParse(value.N, out decimal result))
+            {
+                return result;
+            }
+            return value.N;
+        }
+
+        if (value.BOOL.HasValue)
+        {
+            return value.BOOL.Value;
+        }
+
+        if (value.B != null)
+        {
+            return value.B.ToArray();
+        }
+
+        if (value.SS != null)
+        {
+            return value.SS;
+        }
+
+        if (value.NS != null)
+        {
+            return value.NS.Select(n => decimal.Parse(n)).ToList();
+        }
+
+        if (value.BS != null)
+        {
+            return value.BS.Select(b => b.ToArray()).ToList();
+        }
+
+        if (value.M != null)
+        {
+            return ConvertFromAttributeValues(value.M);
+        }
+
+        if (value.L != null)
+        {
+            return value.L.Select(ConvertFromAttributeValue).ToList();
+        }
+
+        return null!;
+    }
+
+    private void ValidateItemSize(Dictionary<string, AttributeValue> item)
+    {
+        const int MaxItemSize = 400 * 1024; // 400KB DynamoDB limit
+        int currentSize = 0;
+
+        foreach (var kvp in item)
+        {
+            // Add size of attribute name
+            currentSize += System.Text.Encoding.UTF8.GetByteCount(kvp.Key);
+
+            // Add size of attribute value
+            currentSize += GetAttributeValueSize(kvp.Value);
+
+            if (currentSize > MaxItemSize)
+            {
+                throw new DynamoDBProcessorException(
+                    "Item size exceeds DynamoDB's 400KB limit",
+                    "ITEM_SIZE_LIMIT_EXCEEDED",
+                    "ValidationError");
+            }
+        }
+    }
+
+    private int GetAttributeValueSize(AttributeValue value)
+    {
+        if (value.NULL)
+        {
+            return 0;
+        }
+
+        if (value.S != null)
+        {
+            return System.Text.Encoding.UTF8.GetByteCount(value.S);
+        }
+
+        if (value.N != null)
+        {
+            return System.Text.Encoding.UTF8.GetByteCount(value.N);
+        }
+
+        if (value.B != null)
+        {
+            return (int)value.B.Length;
+        }
+
+        if (value.SS != null)
+        {
+            return value.SS.Sum(s => System.Text.Encoding.UTF8.GetByteCount(s));
+        }
+
+        if (value.NS != null)
+        {
+            return value.NS.Sum(n => System.Text.Encoding.UTF8.GetByteCount(n));
+        }
+
+        if (value.BS != null)
+        {
+            return value.BS.Sum(b => (int)b.Length);
+        }
+
+        if (value.M != null)
+        {
+            return value.M.Sum(kvp => 
+                System.Text.Encoding.UTF8.GetByteCount(kvp.Key) + 
+                GetAttributeValueSize(kvp.Value));
+        }
+
+        if (value.L != null)
+        {
+            return value.L.Sum(GetAttributeValueSize);
+        }
+
+        return 0;
     }
 } 
