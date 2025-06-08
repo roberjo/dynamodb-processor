@@ -32,8 +32,7 @@ public class QueryControllerTests : IClassFixture<WebApplicationFactory<Program>
         {
             UserId = "testUser",
             StartDate = DateTime.UtcNow.AddDays(-1),
-            EndDate = DateTime.UtcNow,
-            TableName = "TestTable"
+            EndDate = DateTime.UtcNow
         };
 
         // Create test data in DynamoDB
@@ -57,8 +56,7 @@ public class QueryControllerTests : IClassFixture<WebApplicationFactory<Program>
         {
             UserId = "", // Invalid: empty user ID
             StartDate = DateTime.UtcNow.AddDays(-1),
-            EndDate = DateTime.UtcNow,
-            TableName = "TestTable"
+            EndDate = DateTime.UtcNow
         };
 
         // Act
@@ -75,7 +73,6 @@ public class QueryControllerTests : IClassFixture<WebApplicationFactory<Program>
         var request = new QueryRequest
         {
             UserId = "testUser",
-            TableName = "TestTable",
             Limit = 5
         };
 
@@ -98,8 +95,7 @@ public class QueryControllerTests : IClassFixture<WebApplicationFactory<Program>
         // Arrange
         var request = new QueryRequest
         {
-            UserId = "testUser",
-            TableName = "TestTable"
+            UserId = "testUser"
         };
 
         // Act - Make multiple requests in quick succession

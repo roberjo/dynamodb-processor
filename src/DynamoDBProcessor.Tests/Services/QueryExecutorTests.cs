@@ -28,6 +28,10 @@ public class QueryExecutorTests
         _mockLogger = new Mock<ILogger<QueryExecutor>>();
         _queryBuilder = new QueryBuilder();
         
+        // Setup cache mock to handle CreateEntry method (which Set extension method uses)
+        _mockCache.Setup(x => x.CreateEntry(It.IsAny<object>()))
+            .Returns(Mock.Of<ICacheEntry>());
+        
         _queryExecutor = new QueryExecutor(
             _mockDynamoDb.Object,
             _mockCache.Object,
