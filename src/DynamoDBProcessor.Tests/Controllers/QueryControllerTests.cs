@@ -13,6 +13,7 @@ using FluentValidation.Results;
 using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
 using ValidationErrorResponse = DynamoDBProcessor.Models.ValidationErrorResponse;
 using ErrorResponse = DynamoDBProcessor.Models.ErrorResponse;
+using System.Text.Json;
 
 namespace DynamoDBProcessor.Tests.Controllers;
 
@@ -112,7 +113,14 @@ public class QueryControllerTests
         _mockValidator.Setup(x => x.ValidateAsync(It.IsAny<QueryRequest>(), default))
             .ReturnsAsync(new ValidationResult());
 
-        var continuationToken = "eyJ1c2VySWQiOiJ0ZXN0LXVzZXIiLCJ0aW1lc3RhbXAiOjEyMzQ1Njc4OTB9";
+        // Create a proper continuation token with AttributeValue objects
+        var lastEvaluatedKey = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = "test-user" } },
+            { "timestamp", new AttributeValue { N = "1234567890" } }
+        };
+        var tokenBytes = JsonSerializer.SerializeToUtf8Bytes(lastEvaluatedKey);
+        var continuationToken = Convert.ToBase64String(tokenBytes);
 
         var expectedResponse = new DynamoPaginatedQueryResponse
         {

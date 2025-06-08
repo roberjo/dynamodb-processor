@@ -23,7 +23,61 @@ public class QueryBuilder
             ExpressionAttributeValues = BuildExpressionAttributeValues(request)
         };
 
+        // Set Limit if specified
+        if (request.Limit.HasValue)
+        {
+            queryRequest.Limit = request.Limit.Value;
+        }
+
+        // Set ExclusiveStartKey if specified
+        if (request.ExclusiveStartKey != null && request.ExclusiveStartKey.Any())
+        {
+            queryRequest.ExclusiveStartKey = ConvertExclusiveStartKey(request.ExclusiveStartKey);
+        }
+
+        // Set ScanIndexForward if specified
+        if (request.ScanIndexForward.HasValue)
+        {
+            queryRequest.ScanIndexForward = request.ScanIndexForward.Value;
+        }
+
         return queryRequest;
+    }
+
+    private Dictionary<string, AttributeValue> ConvertExclusiveStartKey(Dictionary<string, object> exclusiveStartKey)
+    {
+        var result = new Dictionary<string, AttributeValue>();
+        
+        foreach (var kvp in exclusiveStartKey)
+        {
+            if (kvp.Value is string stringValue)
+            {
+                result[kvp.Key] = new AttributeValue { S = stringValue };
+            }
+            else if (kvp.Value is int intValue)
+            {
+                result[kvp.Key] = new AttributeValue { N = intValue.ToString() };
+            }
+            else if (kvp.Value is long longValue)
+            {
+                result[kvp.Key] = new AttributeValue { N = longValue.ToString() };
+            }
+            else if (kvp.Value is double doubleValue)
+            {
+                result[kvp.Key] = new AttributeValue { N = doubleValue.ToString() };
+            }
+            else if (kvp.Value is bool boolValue)
+            {
+                result[kvp.Key] = new AttributeValue { BOOL = boolValue };
+            }
+            else
+            {
+                // Default to string representation
+                result[kvp.Key] = new AttributeValue { S = kvp.Value?.ToString() ?? "" };
+            }
+        }
+        
+        return result;
     }
 
     private string DetermineIndex(DynamoDBProcessor.Models.QueryRequest request)

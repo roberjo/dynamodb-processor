@@ -128,10 +128,7 @@ public class QueryController : ControllerBase
         catch (ProvisionedThroughputExceededException ex)
         {
             _logger.LogError(ex, "DynamoDB throttling error");
-            return StatusCode(429, new ErrorResponse
-            {
-                Message = "Service temporarily unavailable. Please try again later."
-            });
+            return StatusCode(429);
         }
         catch (ResourceNotFoundException ex)
         {
@@ -174,24 +171,29 @@ public class QueryController : ControllerBase
     {
         try
         {
+            // Validate request
+            var validationResult = await _validator.ValidateAsync(request);
+            if (!validationResult.IsValid)
+            {
+                var errors = validationResult.Errors.Select(e => new ValidationError
+                {
+                    Field = e.PropertyName,
+                    Message = e.ErrorMessage
+                }).ToList();
+
+                return BadRequest(new ValidationErrorResponse { Errors = errors });
+            }
+
             var response = await _queryExecutor.ExecuteQueryWithPaginationAsync(
                 request,
                 maxItems ?? 10000);
 
-            return Ok(new
-            {
-                Items = response.Items,
-                HasMoreResults = response.HasMoreResults,
-                TotalItems = response.TotalItems
-            });
+            return Ok(response);
         }
         catch (ProvisionedThroughputExceededException ex)
         {
             _logger.LogError(ex, "DynamoDB throttling error");
-            return StatusCode(429, new ErrorResponse
-            {
-                Message = "Service temporarily unavailable. Please try again later."
-            });
+            return StatusCode(429);
         }
         catch (ResourceNotFoundException ex)
         {
