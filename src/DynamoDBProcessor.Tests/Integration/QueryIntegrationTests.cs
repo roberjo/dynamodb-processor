@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using DynamoDBProcessor.Controllers;
@@ -9,6 +11,9 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
 
 namespace DynamoDBProcessor.Tests.Integration;
 
@@ -34,7 +39,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
         var request = new QueryRequest
         {
             UserId = "test-user",
-            PageSize = 10
+            Limit = 10
         };
 
         var expectedResponse = new QueryResponse
@@ -50,7 +55,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
             LastEvaluatedKey = null
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
         // Act
@@ -94,7 +99,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
             }
         };
 
-        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(response1)
             .ReturnsAsync(response2);
 
@@ -131,7 +136,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
             UserId = "test-user"
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ThrowsAsync(new ProvisionedThroughputExceededException("Throttling"));
 
         // Act
@@ -162,7 +167,7 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
             }
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
         // Act - First request
@@ -177,6 +182,6 @@ public class QueryIntegrationTests : IClassFixture<TestWebApplicationFactory>
         response1.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
         response2.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
         result1.Should().BeEquivalentTo(result2);
-        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<QueryRequest>(), default), Times.Once);
+        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default), Times.Once);
     }
 } 

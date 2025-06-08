@@ -5,15 +5,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using DynamoDBProcessor.Services;
 using DynamoDBProcessor.Validators;
-using DynamoDBProcessor.Configuration;
-using DynamoDBProcessor.Middleware;
 using FluentValidation;
 using Amazon.DynamoDBv2;
 using Amazon.CloudWatchLogs;
 using Amazon.CloudWatch;
-using AspNetCoreRateLimit;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
+using Microsoft.Extensions.Logging;
 
 namespace DynamoDBProcessor;
 
@@ -31,7 +29,6 @@ public class Function : APIGatewayProxyFunction
     protected override void Init(IWebHostBuilder builder)
     {
         builder
-            .ConfigureLogging() // Use our custom logging configuration
             .ConfigureServices((context, services) =>
             {
                 // Add core ASP.NET Core services
@@ -93,9 +90,6 @@ public class Function : APIGatewayProxyFunction
                 services.AddAWSService<IAmazonCloudWatchLogs>();
                 services.AddAWSService<IAmazonCloudWatch>();
                 
-                // Configure rate limiting
-                services.ConfigureRateLimiting();
-                
                 // Add memory cache
                 services.AddMemoryCache();
                 services.AddSingleton<ICacheService, MemoryCacheService>();
@@ -109,16 +103,12 @@ public class Function : APIGatewayProxyFunction
                     return new CloudWatchMetricsService(cloudWatchClient, logger, $"DynamoDBProcessor/{environment}");
                 });
                 
-                // Register the DynamoDB service with configuration
+                // Register the DynamoDB service
                 services.AddScoped<IDynamoDBService>(sp =>
                 {
                     var dynamoDbClient = sp.GetRequiredService<IAmazonDynamoDB>();
-                    var cacheService = sp.GetRequiredService<ICacheService>();
-                    var metricsService = sp.GetRequiredService<IMetricsService>();
                     var logger = sp.GetRequiredService<ILogger<DynamoDBService>>();
-                    var tableName = context.Configuration["DYNAMODB_TABLE_NAME"] 
-                        ?? throw new InvalidOperationException("DYNAMODB_TABLE_NAME configuration is missing");
-                    return new DynamoDBService(dynamoDbClient, cacheService, metricsService, tableName, logger);
+                    return new DynamoDBService(dynamoDbClient, logger);
                 });
                 
                 // Register FluentValidation validators
@@ -126,8 +116,10 @@ public class Function : APIGatewayProxyFunction
             })
             .Configure(app =>
             {
+                var env = app.ApplicationServices.GetRequiredService<IWebHostEnvironment>();
+                
                 // Enable Swagger UI in development environment
-                if (app.Environment.IsDevelopment())
+                if (env.IsDevelopment())
                 {
                     app.UseSwagger();
                     app.UseSwaggerUI(c =>
@@ -142,17 +134,8 @@ public class Function : APIGatewayProxyFunction
                 // Configure middleware pipeline
                 app.UseHttpsRedirection();
                 
-                // Add security headers first
-                app.UseMiddleware<SecurityHeadersMiddleware>();
-                
-                // Add rate limiting
-                app.UseIpRateLimiting();
-                
                 app.UseRouting();
                 app.UseAuthorization();
-                
-                // Add request/response logging
-                app.UseMiddleware<RequestResponseLoggingMiddleware>();
                 
                 app.UseEndpoints(endpoints =>
                 {

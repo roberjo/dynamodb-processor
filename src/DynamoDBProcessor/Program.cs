@@ -9,11 +9,12 @@ using Serilog;
 using Serilog.Events;
 using Serilog.Exceptions;
 using Serilog.Formatting.Compact;
-using Serilog.Sinks.AwsCloudWatch;
 using Amazon.DynamoDBv2;
+using Amazon.CloudWatch;
 using DynamoDBProcessor.Validators;
+using DynamoDBProcessor.Models;
 using Microsoft.OpenApi.Models;
-using Swashbuckle.AspNetCore.Filters;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,10 +28,6 @@ Log.Logger = new LoggerConfiguration()
     .Enrich.WithMachineName()
     .Enrich.WithEnvironmentName()
     .WriteTo.Console(new CompactJsonFormatter())
-    .WriteTo.AwsCloudWatch(
-        logGroup: "/dynamodb-processor/logs",
-        logStreamPrefix: DateTime.UtcNow.ToString("yyyy/MM/dd"),
-        region: Amazon.RegionEndpoint.USEast1)
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -40,12 +37,12 @@ builder.Services.AddAWSService<IAmazonDynamoDB>();
 builder.Services.AddAWSService<IAmazonCloudWatch>();
 
 // Add services to the container
-builder.Services.AddControllers()
-    .AddFluentValidation(fv => 
-    {
-        fv.RegisterValidatorsFromAssemblyContaining<Program>();
-        fv.DisableDataAnnotationsValidation = true;
-    });
+builder.Services.AddControllers();
+
+// Add FluentValidation
+builder.Services.AddFluentValidationAutoValidation()
+                .AddFluentValidationClientsideAdapters();
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 // Configure API versioning
 builder.Services.AddApiVersioning(options =>
@@ -71,14 +68,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "DynamoDB Processor API", Version = "v1" });
-    c.ExampleFilters();
 });
-builder.Services.AddSwaggerExamplesFromAssemblyOf<Program>();
 
 // Register services
 builder.Services.AddSingleton<IDynamoDBService, DynamoDBService>();
-builder.Services.AddSingleton<ICacheService, CacheService>();
-builder.Services.AddSingleton<IMetricsService, MetricsService>();
+builder.Services.AddSingleton<ICacheService, MemoryCacheService>();
+builder.Services.AddSingleton<IMetricsService, CloudWatchMetricsService>();
 builder.Services.AddSingleton<QueryBuilder>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
 
@@ -87,6 +82,7 @@ builder.Services.AddScoped<IValidator<QueryRequest>, QueryRequestValidator>();
 
 // Configure response caching
 builder.Services.AddResponseCaching();
+builder.Services.AddMemoryCache();
 
 // Configure rate limiting
 builder.Services.AddRateLimiter(options =>
@@ -125,6 +121,10 @@ app.UseResponseCaching();
 app.UseRateLimiter();
 app.UseResponseCompression();
 app.UseAuthorization();
+
 app.MapControllers();
 
-app.Run(); 
+app.Run();
+
+// Make Program class accessible for integration tests
+public partial class Program { } 

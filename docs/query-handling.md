@@ -4,6 +4,153 @@
 
 The DynamoDB Processor handles flexible query requests where fields like `userId` and `systemId` can be null. The system is designed to build appropriate queries based on the available fields while maintaining efficient data access patterns. The processor implements pagination to handle large result sets and prevent hitting DynamoDB's 1MB data limit.
 
+## Service Limits
+
+The system implements comprehensive handling of various service limits to ensure reliable operation:
+
+### DynamoDB Limits
+- **Item Size**: 400KB per item
+- **Query Response**: 1MB per query
+- **Batch Operations**: 100 items per batch
+- **Scan Size**: 1MB per scan
+- **Throughput**: Handled through exponential backoff
+
+### API Gateway Limits
+- **Request Payload**: 10MB
+- **Response Payload**: 10MB
+- **Timeout**: 30 seconds
+
+### Lambda Limits
+- **Payload Size**: 6MB (request/response)
+- **Timeout**: 15 minutes
+- **Memory**: 128MB - 10GB configurable
+
+### Application Limits
+- **Max Page Size**: 1000 items
+- **Max Items Per Query**: 10000 items
+- **Max Concurrent Queries**: 50
+- **Max Retries**: 3
+- **Base Delay**: 100ms
+- **Max Cache Size**: 1000 items
+- **Cache Expiration**: 5 minutes
+
+## Limit Handling Implementation
+
+### Request Size Validation
+```csharp
+// LimitsMiddleware.cs
+if (context.Request.ContentLength > LimitsConfiguration.ApiGatewayMaxPayloadSize)
+{
+    context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+    await context.Response.WriteAsJsonAsync(new { error = "Request payload too large" });
+    return;
+}
+```
+
+### Response Size Validation
+```csharp
+// QueryExecutor.cs
+var responseSize = CalculateResponseSize(response);
+if (responseSize > LimitsConfiguration.DynamoDBMaxQuerySize)
+{
+    _logger.LogWarning(
+        "Query response size {Size}MB exceeds DynamoDB limit of {Limit}MB",
+        responseSize / (1024 * 1024),
+        LimitsConfiguration.DynamoDBMaxQuerySize / (1024 * 1024));
+    throw new DynamoDBProcessorException(
+        "Query response too large",
+        "RESPONSE_SIZE_LIMIT_EXCEEDED",
+        "ValidationError");
+}
+```
+
+### Pagination with Size Checks
+```csharp
+// QueryExecutor.cs
+public async Task<DynamoPaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
+    QueryRequest request,
+    int maxItems = 10000)
+{
+    maxItems = Math.Min(maxItems, LimitsConfiguration.MaxItemsPerQuery);
+    int totalSize = 0;
+
+    do
+    {
+        var response = await ExecuteQueryAsync(request, lastEvaluatedKey);
+        var newItemsSize = CalculateItemsSize(response.Items);
+        
+        // Check Lambda payload limit
+        if (totalSize + newItemsSize > LimitsConfiguration.LambdaMaxPayloadSize)
+        {
+            break;
+        }
+
+        // Process items...
+    } while (lastEvaluatedKey != null);
+}
+```
+
+## Best Practices
+
+1. **Request Handling**
+   - Validate request size before processing
+   - Use streaming for large payloads
+   - Implement proper error responses
+   - Use rate limiting (100 requests per minute per IP)
+
+2. **Response Handling**
+   - Monitor response sizes
+   - Implement pagination for large results
+   - Use compression when appropriate
+   - Cache responses for 5 minutes
+
+3. **Performance Optimization**
+   - Cache frequently accessed data
+   - Use efficient memory management
+   - Implement proper cleanup
+   - Use exponential backoff for retries
+
+4. **Error Handling**
+   - Provide clear error messages
+   - Log limit-related issues
+   - Implement retry logic with backoff
+   - Handle throttling gracefully
+
+## Configuration
+
+All limits are centralized in `LimitsConfiguration.cs`:
+
+```csharp
+public static class LimitsConfiguration
+{
+    // DynamoDB Limits
+    public const int DynamoDBMaxItemSize = 400 * 1024; // 400KB
+    public const int DynamoDBMaxBatchSize = 100;
+    public const int DynamoDBMaxQuerySize = 1024 * 1024; // 1MB
+    public const int DynamoDBMaxScanSize = 1024 * 1024; // 1MB
+
+    // API Gateway Limits
+    public const int ApiGatewayMaxPayloadSize = 10 * 1024 * 1024; // 10MB
+    public const int ApiGatewayMaxResponseSize = 10 * 1024 * 1024; // 10MB
+    public const int ApiGatewayTimeout = 30; // 30 seconds
+
+    // Lambda Limits
+    public const int LambdaMaxPayloadSize = 6 * 1024 * 1024; // 6MB
+    public const int LambdaTimeout = 900; // 15 minutes
+    public const int LambdaMinMemory = 128; // 128MB
+    public const int LambdaMaxMemory = 10240; // 10GB
+
+    // Application Limits
+    public const int MaxPageSize = 1000;
+    public const int MaxItemsPerQuery = 10000;
+    public const int MaxConcurrentQueries = 50;
+    public const int MaxRetries = 3;
+    public const int BaseDelayMs = 100;
+    public const int MaxCacheSize = 1000;
+    public const int CacheExpirationMinutes = 5;
+}
+```
+
 ## Request Validation
 
 ```csharp
@@ -44,324 +191,83 @@ The system uses a flexible query builder that constructs appropriate DynamoDB qu
 ```csharp
 public class QueryBuilder
 {
-    public QueryRequest BuildQuery(QueryRequest request)
-    {
-        var queryRequest = new QueryRequest
-        {
-            TableName = _tableName,
-            IndexName = DetermineIndex(request),
-            KeyConditionExpression = BuildKeyCondition(request),
-            FilterExpression = BuildFilterExpression(request),
-            ExpressionAttributeValues = BuildExpressionAttributeValues(request)
-        };
-
-        return queryRequest;
-    }
-
-    private string DetermineIndex(QueryRequest request)
-    {
-        if (!string.IsNullOrEmpty(request.UserId) && !string.IsNullOrEmpty(request.SystemId))
-            return "UserSystemIndex";
-        else if (!string.IsNullOrEmpty(request.UserId))
-            return "UserIndex";
-        else
-            return "SystemIndex";
-    }
-
-    private string BuildKeyCondition(QueryRequest request)
+    private string BuildKeyConditionExpression(DynamoQueryRequest request)
     {
         var conditions = new List<string>();
-
-        if (!string.IsNullOrEmpty(request.UserId))
-            conditions.Add("userId = :userId");
-
-        if (!string.IsNullOrEmpty(request.SystemId))
-            conditions.Add("systemId = :systemId");
+        
+        // Add partition key condition
+        conditions.Add($"#pk = :pk");
+        
+        // Add sort key condition if provided
+        if (!string.IsNullOrEmpty(request.SortKeyValue))
+        {
+            if (string.IsNullOrEmpty(request.SortKeyOperator))
+            {
+                conditions.Add("#sk = :sk");
+            }
+            else
+            {
+                conditions.Add($"#sk {request.SortKeyOperator} :sk");
+            }
+        }
 
         return string.Join(" AND ", conditions);
     }
-
-    private string BuildFilterExpression(QueryRequest request)
-    {
-        var filters = new List<string>();
-
-        if (request.StartDate.HasValue)
-            filters.Add("timestamp >= :startDate");
-
-        if (request.EndDate.HasValue)
-            filters.Add("timestamp <= :endDate");
-
-        if (!string.IsNullOrEmpty(request.ResourceId))
-            filters.Add("resourceId = :resourceId");
-
-        return filters.Any() ? string.Join(" AND ", filters) : null;
-    }
-
-    private Dictionary<string, AttributeValue> BuildExpressionAttributeValues(QueryRequest request)
-    {
-        var values = new Dictionary<string, AttributeValue>();
-
-        if (!string.IsNullOrEmpty(request.UserId))
-            values[":userId"] = new AttributeValue { S = request.UserId };
-
-        if (!string.IsNullOrEmpty(request.SystemId))
-            values[":systemId"] = new AttributeValue { S = request.SystemId };
-
-        if (request.StartDate.HasValue)
-            values[":startDate"] = new AttributeValue { S = request.StartDate.Value.ToString("o") };
-
-        if (request.EndDate.HasValue)
-            values[":endDate"] = new AttributeValue { S = request.EndDate.Value.ToString("o") };
-
-        if (!string.IsNullOrEmpty(request.ResourceId))
-            values[":resourceId"] = new AttributeValue { S = request.ResourceId };
-
-        return values;
-    }
 }
 ```
 
-## Query Execution
+## Error Handling
 
-The query execution process includes caching, error handling, and pagination support:
+The system implements comprehensive error handling for limit-related issues:
 
-```csharp
-public class QueryExecutor
-{
-    private readonly IAmazonDynamoDB _dynamoDB;
-    private readonly IMemoryCache _cache;
-    private readonly IMetricsService _metrics;
-    private readonly ILogger<QueryExecutor> _logger;
-    private const int MaxPageSize = 1000;
+1. **Request Size Errors**
+   - Returns 413 Payload Too Large
+   - Provides clear error message
+   - Logs the incident
+   - Records metrics
 
-    public async Task<PaginatedQueryResponse> ExecuteQueryAsync(
-        QueryRequest request,
-        Dictionary<string, AttributeValue> lastEvaluatedKey = null)
-    {
-        var cacheKey = GenerateCacheKey(request, lastEvaluatedKey);
-        
-        if (_cache.TryGetValue(cacheKey, out PaginatedQueryResponse cachedResponse))
-        {
-            _metrics.RecordCountAsync("CacheHit", 1);
-            return cachedResponse;
-        }
+2. **Response Size Errors**
+   - Returns 500 Internal Server Error
+   - Implements pagination
+   - Logs the incident
+   - Records metrics
 
-        try
-        {
-            var queryRequest = _queryBuilder.BuildQuery(request);
-            queryRequest.Limit = MaxPageSize;
-            
-            if (lastEvaluatedKey != null)
-            {
-                queryRequest.ExclusiveStartKey = lastEvaluatedKey;
-            }
+3. **DynamoDB Errors**
+   - Handles throttling with retries
+   - Implements exponential backoff
+   - Logs detailed error information
+   - Records metrics
 
-            var response = await _dynamoDB.QueryAsync(queryRequest);
-            
-            var paginatedResponse = new PaginatedQueryResponse
-            {
-                Items = response.Items,
-                LastEvaluatedKey = response.LastEvaluatedKey,
-                HasMoreResults = response.LastEvaluatedKey != null,
-                TotalItems = response.Items.Count
-            };
+4. **Rate Limiting**
+   - Global rate limit: 100 requests per minute
+   - IP-based rate limiting
+   - Custom rules for localhost
+   - Stack blocked requests
 
-            _cache.Set(cacheKey, paginatedResponse, TimeSpan.FromMinutes(5));
-            _metrics.RecordCountAsync("CacheMiss", 1);
-            
-            return paginatedResponse;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error executing query");
-            _metrics.RecordCountAsync("QueryError", 1);
-            throw;
-        }
-    }
+## Monitoring
 
-    public async Task<PaginatedQueryResponse> ExecuteQueryWithPaginationAsync(
-        QueryRequest request,
-        int maxItems = 10000)
-    {
-        var allItems = new List<Dictionary<string, AttributeValue>>();
-        Dictionary<string, AttributeValue> lastEvaluatedKey = null;
-        int totalItems = 0;
+The system tracks various metrics related to limit handling:
 
-        do
-        {
-            var response = await ExecuteQueryAsync(request, lastEvaluatedKey);
-            allItems.AddRange(response.Items);
-            lastEvaluatedKey = response.LastEvaluatedKey;
-            totalItems += response.Items.Count;
+1. **Size Metrics**
+   - Request sizes
+   - Response sizes
+   - Cache hit/miss rates
+   - Throttling events
 
-            if (totalItems >= maxItems)
-            {
-                break;
-            }
+2. **Error Metrics**
+   - Limit exceeded errors
+   - Throttling events
+   - Retry attempts
+   - Validation errors
 
-            if (lastEvaluatedKey != null)
-            {
-                await Task.Delay(100);
-            }
-        } while (lastEvaluatedKey != null);
+3. **Performance Metrics**
+   - Query execution times
+   - Pagination efficiency
+   - Cache effectiveness
+   - Memory usage
 
-        return new PaginatedQueryResponse
-        {
-            Items = allItems,
-            LastEvaluatedKey = lastEvaluatedKey,
-            HasMoreResults = lastEvaluatedKey != null,
-            TotalItems = totalItems
-        };
-    }
-
-    private string GenerateCacheKey(
-        QueryRequest request,
-        Dictionary<string, AttributeValue> lastEvaluatedKey)
-    {
-        var keyParts = new List<string>
-        {
-            request.UserId ?? "null",
-            request.SystemId ?? "null",
-            request.StartDate?.ToString("o") ?? "null",
-            request.EndDate?.ToString("o") ?? "null",
-            request.ResourceId ?? "null"
-        };
-
-        if (lastEvaluatedKey != null)
-        {
-            foreach (var key in lastEvaluatedKey.OrderBy(k => k.Key))
-            {
-                keyParts.Add($"{key.Key}:{key.Value.S ?? key.Value.N}");
-            }
-        }
-
-        return string.Join("|", keyParts);
-    }
-}
-```
-
-## Supported Query Patterns
-
-The system supports the following query patterns with pagination:
-
-1. **User ID Only (Paginated)**
-   ```json
-   {
-     "userId": "user123"
-   }
-   ```
-   Response:
-   ```json
-   {
-     "items": [...],
-     "lastEvaluatedKey": "eyJ1c2VySWQiOiJ1c2VyMTIzIiwidGltZXN0YW1wIjoiMjAyNC0wMS0wMVQwMDowMDowMFoifQ==",
-     "hasMoreResults": true,
-     "totalItems": 1000
-   }
-   ```
-
-2. **System ID Only (Paginated)**
-   ```json
-   {
-     "systemId": "system456"
-   }
-   ```
-
-3. **User ID + System ID (Paginated)**
-   ```json
-   {
-     "userId": "user123",
-     "systemId": "system456"
-   }
-   ```
-
-4. **User ID + Date Range (Paginated)**
-   ```json
-   {
-     "userId": "user123",
-     "startDate": "2024-01-01T00:00:00Z",
-     "endDate": "2024-01-31T23:59:59Z"
-   }
-   ```
-
-5. **System ID + Date Range (Paginated)**
-   ```json
-   {
-     "systemId": "system456",
-     "startDate": "2024-01-01T00:00:00Z",
-     "endDate": "2024-01-31T23:59:59Z"
-   }
-   ```
-
-6. **All Fields (Paginated)**
-   ```json
-   {
-     "userId": "user123",
-     "systemId": "system456",
-     "startDate": "2024-01-01T00:00:00Z",
-     "endDate": "2024-01-31T23:59:59Z",
-     "resourceId": "resource789"
-   }
-   ```
-
-## Performance Considerations
-
-1. **Index Selection**
-   - Uses appropriate GSI based on query fields
-   - Optimizes for most common query patterns
-   - Minimizes scan operations
-
-2. **Caching Strategy**
-   - Caches query results for 5 minutes
-   - Uses composite cache keys including pagination state
-   - Implements cache invalidation
-
-3. **Pagination Strategy**
-   - Default page size of 1000 items
-   - Configurable through API parameters
-   - Handles LastEvaluatedKey properly
-   - Implements result concatenation for large datasets
-
-4. **Error Handling**
-   - Validates request before execution
-   - Handles DynamoDB errors gracefully
-   - Provides meaningful error messages
-   - Implements retry logic for throttling
-
-5. **Monitoring**
-   - Tracks query performance
-   - Monitors cache hit/miss rates
-   - Records error rates
-   - Tracks pagination metrics
-
-## Best Practices
-
-1. **Query Design**
-   - Use appropriate indexes
-   - Minimize filter expressions
-   - Optimize key conditions
-   - Implement proper pagination
-
-2. **Caching**
-   - Use appropriate TTL
-   - Implement cache invalidation
-   - Monitor cache performance
-   - Cache paginated results
-
-3. **Pagination**
-   - Use consistent page sizes
-   - Handle LastEvaluatedKey properly
-   - Implement proper error handling
-   - Add delays between requests
-
-4. **Error Handling**
-   - Validate input thoroughly
-   - Handle errors gracefully
-   - Provide clear error messages
-   - Implement retry logic
-
-5. **Monitoring**
-   - Track query patterns
-   - Monitor performance
-   - Alert on issues
-   - Track pagination metrics 
+4. **CloudWatch Integration**
+   - Custom metrics
+   - Environment-specific namespaces
+   - Detailed logging
+   - Performance monitoring 

@@ -1,4 +1,5 @@
 using DynamoDBProcessor.Models;
+using Amazon.DynamoDBv2.Model;
 
 namespace DynamoDBProcessor.Services;
 
@@ -13,5 +14,7 @@ public interface IDynamoDBService
     /// <param name="request">The query request containing search criteria</param>
     /// <param name="cancellationToken">Token to monitor for cancellation requests</param>
     /// <returns>A DynamoQueryResponse containing the matching records and pagination information</returns>
-    Task<DynamoQueryResponse> QueryRecordsAsync(DynamoQueryRequest request, CancellationToken cancellationToken = default);
+    Task<DynamoQueryResponse> QueryAsync(DynamoDBProcessor.Models.QueryRequest request);
+
+    Task<DynamoPaginatedQueryResponse> QueryPaginatedAsync(DynamoDBProcessor.Models.QueryRequest request, Dictionary<string, AttributeValue>? lastEvaluatedKey = null);
 } 

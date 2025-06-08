@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using DynamoDBProcessor.Exceptions;
 
 namespace DynamoDBProcessor.Services;
 
@@ -10,6 +12,7 @@ public class MemoryCacheService : ICacheService
 {
     private readonly IMemoryCache _cache;
     private readonly ILogger<MemoryCacheService> _logger;
+    private const int MaxCacheSize = 1000; // Maximum number of items in cache
 
     public MemoryCacheService(IMemoryCache cache, ILogger<MemoryCacheService> logger)
     {
@@ -21,6 +24,11 @@ public class MemoryCacheService : ICacheService
     {
         try
         {
+            if (string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             if (_cache.TryGetValue(key, out string? cachedValue))
             {
                 if (cachedValue == null)
@@ -39,7 +47,11 @@ public class MemoryCacheService : ICacheService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving value from cache for key: {Key}", key);
-            return Task.FromResult<T?>(default);
+            throw new DynamoDBProcessorException(
+                "Failed to retrieve value from cache",
+                "CACHE_ERROR",
+                "CacheError",
+                ex);
         }
     }
 
@@ -47,7 +59,15 @@ public class MemoryCacheService : ICacheService
     {
         try
         {
-            var options = new MemoryCacheEntryOptions();
+            if (string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
+            var options = new MemoryCacheEntryOptions()
+                .SetSize(1) // Each item has size 1
+                .SetPriority(CacheItemPriority.Normal);
+
             if (expiration.HasValue)
             {
                 options.AbsoluteExpirationRelativeToNow = expiration;
@@ -61,7 +81,11 @@ public class MemoryCacheService : ICacheService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting value in cache for key: {Key}", key);
-            return Task.CompletedTask;
+            throw new DynamoDBProcessorException(
+                "Failed to set value in cache",
+                "CACHE_ERROR",
+                "CacheError",
+                ex);
         }
     }
 
@@ -69,6 +93,11 @@ public class MemoryCacheService : ICacheService
     {
         try
         {
+            if (string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             _cache.Remove(key);
             _logger.LogDebug("Value removed from cache for key: {Key}", key);
             return Task.CompletedTask;
@@ -76,7 +105,11 @@ public class MemoryCacheService : ICacheService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error removing value from cache for key: {Key}", key);
-            return Task.CompletedTask;
+            throw new DynamoDBProcessorException(
+                "Failed to remove value from cache",
+                "CACHE_ERROR",
+                "CacheError",
+                ex);
         }
     }
 } 

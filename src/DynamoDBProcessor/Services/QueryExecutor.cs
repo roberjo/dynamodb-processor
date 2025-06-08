@@ -1,11 +1,13 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using DynamoDBProcessor.Models;
+using DynamoDBProcessor.Configuration;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Retry;
 using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
+using DynamoDBProcessor.Exceptions;
 
 namespace DynamoDBProcessor.Services;
 
@@ -27,9 +29,6 @@ public class QueryExecutor : IQueryExecutor
     private readonly IMetricsService _metrics;
     private readonly ILogger<QueryExecutor> _logger;
     private readonly QueryBuilder _queryBuilder;
-    private const int MaxPageSize = 1000;
-    private const int MaxRetries = 3;
-    private const int BaseDelayMs = 100;
 
     private readonly AsyncRetryPolicy<DynamoPaginatedQueryResponse> _retryPolicy;
 
@@ -49,16 +48,16 @@ public class QueryExecutor : IQueryExecutor
         _retryPolicy = Policy<DynamoPaginatedQueryResponse>
             .Handle<ProvisionedThroughputExceededException>()
             .WaitAndRetryAsync(
-                MaxRetries,
+                LimitsConfiguration.MaxRetries,
                 retryAttempt => TimeSpan.FromMilliseconds(
-                    BaseDelayMs * Math.Pow(2, retryAttempt - 1)),
+                    LimitsConfiguration.BaseDelayMs * Math.Pow(2, retryAttempt - 1)),
                 onRetry: (exception, timeSpan, retryCount, context) =>
                 {
                     _logger.LogWarning(
-                        exception,
-                        "Retry {RetryCount} after {Delay}ms for throttled query",
+                        "Retry {RetryCount} after {Delay}ms for throttled query. Exception: {Exception}",
                         retryCount,
-                        timeSpan.TotalMilliseconds);
+                        timeSpan.TotalMilliseconds,
+                        exception.Exception?.Message);
                     _metrics.RecordCountAsync("QueryThrottledRetry", 1);
                 });
     }
@@ -80,7 +79,9 @@ public class QueryExecutor : IQueryExecutor
             try
             {
                 var queryRequest = _queryBuilder.BuildQuery(request);
-                queryRequest.Limit = MaxPageSize;
+                queryRequest.Limit = Math.Min(
+                    request.Limit ?? LimitsConfiguration.MaxPageSize,
+                    LimitsConfiguration.MaxPageSize);
                 
                 if (lastEvaluatedKey != null)
                 {
@@ -88,6 +89,20 @@ public class QueryExecutor : IQueryExecutor
                 }
 
                 var response = await _dynamoDB.QueryAsync(queryRequest);
+                
+                // Check response size
+                var responseSize = CalculateResponseSize(response);
+                if (responseSize > LimitsConfiguration.DynamoDBMaxQuerySize)
+                {
+                    _logger.LogWarning(
+                        "Query response size {Size}MB exceeds DynamoDB limit of {Limit}MB",
+                        responseSize / (1024 * 1024),
+                        LimitsConfiguration.DynamoDBMaxQuerySize / (1024 * 1024));
+                    throw new DynamoDBProcessorException(
+                        "Query response too large",
+                        "RESPONSE_SIZE_LIMIT_EXCEEDED",
+                        "ValidationError");
+                }
                 
                 var paginatedResponse = new DynamoPaginatedQueryResponse
                 {
@@ -102,7 +117,8 @@ public class QueryExecutor : IQueryExecutor
                         : null
                 };
 
-                _cache.Set(cacheKey, paginatedResponse, TimeSpan.FromMinutes(5));
+                _cache.Set(cacheKey, paginatedResponse, 
+                    TimeSpan.FromMinutes(LimitsConfiguration.CacheExpirationMinutes));
                 _metrics.RecordCountAsync("CacheMiss", 1);
                 
                 return paginatedResponse;
@@ -120,16 +136,30 @@ public class QueryExecutor : IQueryExecutor
         QueryRequest request,
         int maxItems = 10000)
     {
+        maxItems = Math.Min(maxItems, LimitsConfiguration.MaxItemsPerQuery);
         var allItems = new List<Dictionary<string, AttributeValue>>();
         Dictionary<string, AttributeValue>? lastEvaluatedKey = null;
         int totalItems = 0;
+        int totalSize = 0;
 
         do
         {
             var response = await ExecuteQueryAsync(request, lastEvaluatedKey);
+            
+            // Check if adding these items would exceed the Lambda payload limit
+            var newItemsSize = CalculateItemsSize(response.Items);
+            if (totalSize + newItemsSize > LimitsConfiguration.LambdaMaxPayloadSize)
+            {
+                _logger.LogWarning(
+                    "Total response size would exceed Lambda limit of {Limit}MB",
+                    LimitsConfiguration.LambdaMaxPayloadSize / (1024 * 1024));
+                break;
+            }
+
             allItems.AddRange(response.Items);
             lastEvaluatedKey = response.LastEvaluatedKey;
             totalItems += response.Items.Count;
+            totalSize += newItemsSize;
 
             if (totalItems >= maxItems)
             {
@@ -138,7 +168,7 @@ public class QueryExecutor : IQueryExecutor
 
             if (lastEvaluatedKey != null)
             {
-                await Task.Delay(100); // Prevent throttling
+                await Task.Delay(LimitsConfiguration.BaseDelayMs);
             }
         } while (lastEvaluatedKey != null);
 
@@ -178,5 +208,83 @@ public class QueryExecutor : IQueryExecutor
         }
 
         return string.Join("|", keyParts);
+    }
+
+    private int CalculateResponseSize(QueryResponse response)
+    {
+        int size = 0;
+        foreach (var item in response.Items)
+        {
+            size += CalculateItemSize(item);
+        }
+        return size;
+    }
+
+    private int CalculateItemsSize(List<Dictionary<string, AttributeValue>> items)
+    {
+        return items.Sum(CalculateItemSize);
+    }
+
+    private int CalculateItemSize(Dictionary<string, AttributeValue> item)
+    {
+        int size = 0;
+        foreach (var kvp in item)
+        {
+            size += System.Text.Encoding.UTF8.GetByteCount(kvp.Key);
+            size += CalculateAttributeValueSize(kvp.Value);
+        }
+        return size;
+    }
+
+    private int CalculateAttributeValueSize(AttributeValue value)
+    {
+        if (value.NULL)
+        {
+            return 0;
+        }
+
+        if (value.S != null)
+        {
+            return System.Text.Encoding.UTF8.GetByteCount(value.S);
+        }
+
+        if (value.N != null)
+        {
+            return System.Text.Encoding.UTF8.GetByteCount(value.N);
+        }
+
+        if (value.B != null)
+        {
+            return (int)value.B.Length;
+        }
+
+        if (value.SS != null)
+        {
+            return value.SS.Sum(s => System.Text.Encoding.UTF8.GetByteCount(s));
+        }
+
+        if (value.NS != null)
+        {
+            return value.NS.Sum(n => System.Text.Encoding.UTF8.GetByteCount(n));
+        }
+
+        if (value.BS != null)
+        {
+            return value.BS.Sum(b => (int)b.Length);
+        }
+
+        if (value.M != null)
+        {
+            return value.M.Sum(kvp => 
+                System.Text.Encoding.UTF8.GetByteCount(kvp.Key) + 
+                CalculateAttributeValueSize(kvp.Value));
+        }
+
+        if (value.L != null)
+        {
+            return value.L.Sum(CalculateAttributeValueSize);
+        }
+
+        return 0;
     }
 } 

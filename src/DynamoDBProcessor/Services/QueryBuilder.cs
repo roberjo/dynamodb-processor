@@ -12,9 +12,9 @@ public class QueryBuilder
         _tableName = tableName;
     }
 
-    public QueryRequest BuildQuery(QueryRequest request)
+    public Amazon.DynamoDBv2.Model.QueryRequest BuildQuery(DynamoDBProcessor.Models.QueryRequest request)
     {
-        var queryRequest = new QueryRequest
+        var queryRequest = new Amazon.DynamoDBv2.Model.QueryRequest
         {
             TableName = _tableName,
             IndexName = DetermineIndex(request),
@@ -23,10 +23,64 @@ public class QueryBuilder
             ExpressionAttributeValues = BuildExpressionAttributeValues(request)
         };
 
+        // Set Limit if specified
+        if (request.Limit.HasValue)
+        {
+            queryRequest.Limit = request.Limit.Value;
+        }
+
+        // Set ExclusiveStartKey if specified
+        if (request.ExclusiveStartKey != null && request.ExclusiveStartKey.Any())
+        {
+            queryRequest.ExclusiveStartKey = ConvertExclusiveStartKey(request.ExclusiveStartKey);
+        }
+
+        // Set ScanIndexForward if specified
+        if (request.ScanIndexForward.HasValue)
+        {
+            queryRequest.ScanIndexForward = request.ScanIndexForward.Value;
+        }
+
         return queryRequest;
     }
 
-    private string DetermineIndex(QueryRequest request)
+    private Dictionary<string, AttributeValue> ConvertExclusiveStartKey(Dictionary<string, object> exclusiveStartKey)
+    {
+        var result = new Dictionary<string, AttributeValue>();
+        
+        foreach (var kvp in exclusiveStartKey)
+        {
+            if (kvp.Value is string stringValue)
+            {
+                result[kvp.Key] = new AttributeValue { S = stringValue };
+            }
+            else if (kvp.Value is int intValue)
+            {
+                result[kvp.Key] = new AttributeValue { N = intValue.ToString() };
+            }
+            else if (kvp.Value is long longValue)
+            {
+                result[kvp.Key] = new AttributeValue { N = longValue.ToString() };
+            }
+            else if (kvp.Value is double doubleValue)
+            {
+                result[kvp.Key] = new AttributeValue { N = doubleValue.ToString() };
+            }
+            else if (kvp.Value is bool boolValue)
+            {
+                result[kvp.Key] = new AttributeValue { BOOL = boolValue };
+            }
+            else
+            {
+                // Default to string representation
+                result[kvp.Key] = new AttributeValue { S = kvp.Value?.ToString() ?? "" };
+            }
+        }
+        
+        return result;
+    }
+
+    private string DetermineIndex(DynamoDBProcessor.Models.QueryRequest request)
     {
         if (!string.IsNullOrEmpty(request.UserId) && !string.IsNullOrEmpty(request.SystemId))
             return "UserSystemIndex";
@@ -36,7 +90,7 @@ public class QueryBuilder
             return "SystemIndex";
     }
 
-    private string BuildKeyCondition(QueryRequest request)
+    private string BuildKeyCondition(DynamoDBProcessor.Models.QueryRequest request)
     {
         var conditions = new List<string>();
 
@@ -49,7 +103,7 @@ public class QueryBuilder
         return string.Join(" AND ", conditions);
     }
 
-    private string? BuildFilterExpression(QueryRequest request)
+    private string? BuildFilterExpression(DynamoDBProcessor.Models.QueryRequest request)
     {
         var filters = new List<string>();
 
@@ -65,7 +119,7 @@ public class QueryBuilder
         return filters.Any() ? string.Join(" AND ", filters) : null;
     }
 
-    private Dictionary<string, AttributeValue> BuildExpressionAttributeValues(QueryRequest request)
+    private Dictionary<string, AttributeValue> BuildExpressionAttributeValues(DynamoDBProcessor.Models.QueryRequest request)
     {
         var values = new Dictionary<string, AttributeValue>();
 

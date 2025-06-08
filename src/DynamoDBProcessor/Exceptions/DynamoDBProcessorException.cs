@@ -32,6 +32,7 @@ public class DynamoDBProcessorException : Exception
         ErrorType = info.GetString(nameof(ErrorType)) ?? "UNKNOWN";
     }
 
+    [Obsolete("This method is obsolete. Use SerializationInfo.AddValue instead.")]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);

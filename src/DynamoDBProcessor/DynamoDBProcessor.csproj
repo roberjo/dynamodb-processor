@@ -10,19 +10,25 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.CloudWatch" Version="3.7.302.8" />
-    <PackageReference Include="AWSSDK.Core" Version="3.7.302.8" />
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.302.8" />
-    <PackageReference Include="AWSSDK.Lambda" Version="3.7.302.8" />
+    <PackageReference Include="AWSSDK.CloudWatch" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.Core" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.Lambda" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.400" />
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.0" />
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="7.0.0" />
+    <PackageReference Include="Amazon.Extensions.Configuration.SystemsManager" Version="4.0.0" />
     <PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="2.3.2" />
     <PackageReference Include="Polly" Version="8.2.1" />
-    <PackageReference Include="Serilog.Sinks.AwsCloudWatch" Version="3.0.1" />
+    <PackageReference Include="Serilog.Sinks.AwsCloudWatch" Version="3.0.77" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.9.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.1" />
     <PackageReference Include="Serilog.Enrichers.Environment" Version="2.3.0" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="3.1.0" />
     <PackageReference Include="Serilog.Exceptions" Version="8.4.0" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="2.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />

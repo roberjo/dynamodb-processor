@@ -1,27 +1,21 @@
 using Amazon.DynamoDBv2.Model;
 using Swashbuckle.AspNetCore.Filters;
 using DynamoDBProcessor.Models;
+using DynamoDBProcessor.Controllers;
 
 namespace DynamoDBProcessor.Examples;
 
-public class QueryRequestExample : IExamplesProvider<Amazon.DynamoDBv2.Model.QueryRequest>
+public class QueryRequestExample : IExamplesProvider<DynamoDBProcessor.Models.QueryRequest>
 {
-    public Amazon.DynamoDBv2.Model.QueryRequest GetExamples()
+    public DynamoDBProcessor.Models.QueryRequest GetExamples()
     {
-        return new Amazon.DynamoDBv2.Model.QueryRequest
+        return new DynamoDBProcessor.Models.QueryRequest
         {
-            TableName = "UserRecords",
-            IndexName = "UserSystemIndex",
-            KeyConditionExpression = "userId = :userId AND systemId = :systemId",
-            FilterExpression = "createdAt BETWEEN :startDate AND :endDate",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                [":userId"] = new AttributeValue { S = "user123" },
-                [":systemId"] = new AttributeValue { S = "system456" },
-                [":startDate"] = new AttributeValue { S = "2024-01-01T00:00:00Z" },
-                [":endDate"] = new AttributeValue { S = "2024-12-31T23:59:59Z" }
-            },
-            ScanIndexForward = true,
+            UserId = "user123",
+            SystemId = "system456",
+            ResourceId = "resource789",
+            StartDate = DateTime.UtcNow.AddDays(-7),
+            EndDate = DateTime.UtcNow,
             Limit = 100
         };
     }
@@ -65,24 +59,24 @@ public class PaginatedQueryResponseExample : IExamplesProvider<DynamoPaginatedQu
     }
 }
 
-public class ErrorResponseExample : IExamplesProvider<ErrorResponse>
+public class ErrorResponseExample : IExamplesProvider<DynamoDBProcessor.Controllers.ErrorResponse>
 {
-    public ErrorResponse GetExamples()
+    public DynamoDBProcessor.Controllers.ErrorResponse GetExamples()
     {
-        return new ErrorResponse
+        return new DynamoDBProcessor.Controllers.ErrorResponse
         {
             Message = "The requested table or index does not exist."
         };
     }
 }
 
-public class ValidationErrorResponseExample : IExamplesProvider<ValidationErrorResponse>
+public class ValidationErrorResponseExample : IExamplesProvider<DynamoDBProcessor.Controllers.ValidationErrorResponse>
 {
-    public ValidationErrorResponse GetExamples()
+    public DynamoDBProcessor.Controllers.ValidationErrorResponse GetExamples()
     {
-        return new ValidationErrorResponse
+        return new DynamoDBProcessor.Controllers.ValidationErrorResponse
         {
-            Errors = new List<ValidationError>
+            Errors = new List<DynamoDBProcessor.Controllers.ValidationError>
             {
                 new()
                 {
@@ -95,34 +89,6 @@ public class ValidationErrorResponseExample : IExamplesProvider<ValidationErrorR
                     Message = "Start date must be before end date."
                 }
             }
-        };
-    }
-}
-
-public class DynamoQueryRequestExample : IExamplesProvider<DynamoQueryRequest>
-{
-    public DynamoQueryRequest GetExamples()
-    {
-        return new DynamoQueryRequest
-        {
-            TableName = "MyTable",
-            PartitionKeyValue = "user123",
-            SortKeyValue = "2024-01-01",
-            SortKeyOperator = "begins_with",
-            FilterExpression = "attribute_exists(#status) AND #status = :status",
-            ExpressionAttributeValues = new Dictionary<string, object>
-            {
-                { ":status", "active" }
-            },
-            ExpressionAttributeNames = new Dictionary<string, string>
-            {
-                { "#status", "status" }
-            },
-            Limit = 100,
-            ScanIndexForward = true,
-            ConsistentRead = false,
-            ReturnConsumedCapacity = "TOTAL",
-            ProjectionExpression = "#id, #name, #status"
         };
     }
 }

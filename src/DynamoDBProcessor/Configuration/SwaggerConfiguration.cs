@@ -124,7 +124,7 @@ The API supports multiple authentication methods:
             });
 
             // Add example requests/responses
-            c.ExampleFilters();
+            // c.ExampleFilters(); // Commented out - requires additional package
 
             // Add custom operation filters
             c.OperationFilter<AddRequiredHeaderParameter>();
@@ -132,7 +132,7 @@ The API supports multiple authentication methods:
         });
 
         // Add example filters
-        services.AddSwaggerExamplesFromAssemblyOf<QueryRequestExample>();
+        // services.AddSwaggerExamplesFromAssemblyOf<QueryRequestExample>(); // Commented out - requires additional package
 
         return services;
     }
@@ -192,7 +192,7 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
         }
 
         // Add custom UI styling
-        options.EnableAnnotations();
+        // options.EnableAnnotations(); // Commented out - requires additional package
         options.DocumentFilter<AddCustomHeaderFilter>();
         options.DocumentFilter<AddCustomFooterFilter>();
     }

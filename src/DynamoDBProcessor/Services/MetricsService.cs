@@ -33,7 +33,7 @@ public class MetricsService : IMetricsService
                         MetricName = metricName,
                         Value = value,
                         Unit = StandardUnit.Count,
-                        Timestamp = DateTime.UtcNow,
+                        TimestampUtc = DateTime.UtcNow,
                         Dimensions = dimensions?.Select(d => new Dimension
                         {
                             Name = d.Key,
@@ -65,7 +65,7 @@ public class MetricsService : IMetricsService
                         MetricName = metricName,
                         Value = value,
                         Unit = StandardUnit.Milliseconds,
-                        Timestamp = DateTime.UtcNow,
+                        TimestampUtc = DateTime.UtcNow,
                         Dimensions = dimensions?.Select(d => new Dimension
                         {
                             Name = d.Key,
@@ -97,7 +97,7 @@ public class MetricsService : IMetricsService
                         MetricName = metricName,
                         Value = value,
                         Unit = StandardUnit.None,
-                        Timestamp = DateTime.UtcNow,
+                        TimestampUtc = DateTime.UtcNow,
                         Dimensions = dimensions?.Select(d => new Dimension
                         {
                             Name = d.Key,

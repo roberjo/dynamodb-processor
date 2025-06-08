@@ -32,7 +32,7 @@ public class CloudWatchMetricsService : IMetricsService
                 MetricName = name,
                 Value = value,
                 Unit = StandardUnit.Count,
-                Timestamp = DateTime.UtcNow,
+                TimestampUtc = DateTime.UtcNow,
                 Dimensions = ConvertDimensions(dimensions)
             };
 
@@ -60,7 +60,7 @@ public class CloudWatchMetricsService : IMetricsService
                 MetricName = name,
                 Value = milliseconds,
                 Unit = StandardUnit.Milliseconds,
-                Timestamp = DateTime.UtcNow,
+                TimestampUtc = DateTime.UtcNow,
                 Dimensions = ConvertDimensions(dimensions)
             };
 
@@ -88,7 +88,7 @@ public class CloudWatchMetricsService : IMetricsService
                 MetricName = name,
                 Value = value,
                 Unit = StandardUnit.None,
-                Timestamp = DateTime.UtcNow,
+                TimestampUtc = DateTime.UtcNow,
                 Dimensions = ConvertDimensions(dimensions)
             };
 

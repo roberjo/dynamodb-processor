@@ -3,6 +3,7 @@ using DynamoDBProcessor.Models;
 using DynamoDBProcessor.Services;
 using Xunit;
 using FluentAssertions;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
 
 namespace DynamoDBProcessor.Tests.Services;
 
