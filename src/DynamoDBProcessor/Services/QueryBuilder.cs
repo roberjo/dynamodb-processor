@@ -12,9 +12,9 @@ public class QueryBuilder
         _tableName = tableName;
     }
 
-    public QueryRequest BuildQuery(QueryRequest request)
+    public Amazon.DynamoDBv2.Model.QueryRequest BuildQuery(DynamoDBProcessor.Models.QueryRequest request)
     {
-        var queryRequest = new QueryRequest
+        var queryRequest = new Amazon.DynamoDBv2.Model.QueryRequest
         {
             TableName = _tableName,
             IndexName = DetermineIndex(request),
@@ -26,7 +26,7 @@ public class QueryBuilder
         return queryRequest;
     }
 
-    private string DetermineIndex(QueryRequest request)
+    private string DetermineIndex(DynamoDBProcessor.Models.QueryRequest request)
     {
         if (!string.IsNullOrEmpty(request.UserId) && !string.IsNullOrEmpty(request.SystemId))
             return "UserSystemIndex";
@@ -36,7 +36,7 @@ public class QueryBuilder
             return "SystemIndex";
     }
 
-    private string BuildKeyCondition(QueryRequest request)
+    private string BuildKeyCondition(DynamoDBProcessor.Models.QueryRequest request)
     {
         var conditions = new List<string>();
 
@@ -49,7 +49,7 @@ public class QueryBuilder
         return string.Join(" AND ", conditions);
     }
 
-    private string? BuildFilterExpression(QueryRequest request)
+    private string? BuildFilterExpression(DynamoDBProcessor.Models.QueryRequest request)
     {
         var filters = new List<string>();
 
@@ -65,7 +65,7 @@ public class QueryBuilder
         return filters.Any() ? string.Join(" AND ", filters) : null;
     }
 
-    private Dictionary<string, AttributeValue> BuildExpressionAttributeValues(QueryRequest request)
+    private Dictionary<string, AttributeValue> BuildExpressionAttributeValues(DynamoDBProcessor.Models.QueryRequest request)
     {
         var values = new Dictionary<string, AttributeValue>();
 

@@ -25,28 +25,8 @@ public static class LoggingConfiguration
                 .Enrich.WithProperty("ApplicationName", applicationName)
                 .Enrich.WithProperty("Environment", environment);
 
-            // Console sink for local development
-            if (environment == "Development")
-            {
-                configuration.WriteTo.Console(new CompactJsonFormatter());
-            }
-            else
-            {
-                // CloudWatch sink for non-development environments
-                var cloudWatchClient = services.GetRequiredService<IAmazonCloudWatchLogs>();
-                configuration.WriteTo.AmazonCloudWatch(
-                    logGroup: $"/aws/lambda/{applicationName}",
-                    logStreamPrefix: $"{environment}-",
-                    cloudWatchClient: cloudWatchClient,
-                    textFormatter: new CompactJsonFormatter(),
-                    options: new CloudWatchSinkOptions
-                    {
-                        BatchSizeLimit = 100,
-                        QueueSizeLimit = 10000,
-                        Period = TimeSpan.FromSeconds(5),
-                        CreateLogGroup = true
-                    });
-            }
+            // Console sink for all environments (simplified)
+            configuration.WriteTo.Console(new CompactJsonFormatter());
         });
     }
 } 

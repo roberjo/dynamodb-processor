@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using DynamoDBProcessor.Controllers;
@@ -9,6 +11,9 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
 
 namespace DynamoDBProcessor.Tests.Integration;
 

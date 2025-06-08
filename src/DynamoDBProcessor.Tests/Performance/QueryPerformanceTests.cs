@@ -2,11 +2,13 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using DynamoDBProcessor.Models;
 using DynamoDBProcessor.Services;
+using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Diagnostics;
 using Xunit;
-using FluentAssertions;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
 
 namespace DynamoDBProcessor.Tests.Performance;
 
@@ -16,6 +18,7 @@ public class QueryPerformanceTests
     private readonly Mock<IMemoryCache> _mockCache;
     private readonly Mock<IMetricsService> _mockMetrics;
     private readonly Mock<ILogger<QueryExecutor>> _mockLogger;
+    private readonly QueryBuilder _queryBuilder;
     private readonly QueryExecutor _queryExecutor;
 
     public QueryPerformanceTests()
@@ -24,7 +27,8 @@ public class QueryPerformanceTests
         _mockCache = new Mock<IMemoryCache>();
         _mockMetrics = new Mock<IMetricsService>();
         _mockLogger = new Mock<ILogger<QueryExecutor>>();
-        _queryExecutor = new QueryExecutor(_mockDynamoDb.Object, _mockCache.Object, _mockMetrics.Object, _mockLogger.Object);
+        _queryBuilder = new QueryBuilder();
+        _queryExecutor = new QueryExecutor(_mockDynamoDb.Object, _mockCache.Object, _mockMetrics.Object, _mockLogger.Object, _queryBuilder);
     }
 
     [Theory]
@@ -72,7 +76,7 @@ public class QueryPerformanceTests
             responses.Add(response);
         }
 
-        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.SetupSequence(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(responses[0])
             .ReturnsAsync(responses[1])
             .ReturnsAsync(responses[2])
@@ -111,7 +115,7 @@ public class QueryPerformanceTests
             }
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
         object cachedValue = new DynamoPaginatedQueryResponse
@@ -158,7 +162,7 @@ public class QueryPerformanceTests
             }
         };
 
-        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<QueryRequest>(), default))
+        _mockDynamoDb.Setup(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default))
             .ReturnsAsync(expectedResponse);
 
         // Act
@@ -175,6 +179,6 @@ public class QueryPerformanceTests
 
         // Assert
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(10000); // 10 seconds max
-        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<QueryRequest>(), default), Times.Exactly(100));
+        _mockDynamoDb.Verify(x => x.QueryAsync(It.IsAny<Amazon.DynamoDBv2.Model.QueryRequest>(), default), Times.Exactly(100));
     }
 } 

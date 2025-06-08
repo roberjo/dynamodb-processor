@@ -1,3 +1,4 @@
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using DynamoDBProcessor.Controllers;
 using DynamoDBProcessor.Models;
@@ -9,6 +10,9 @@ using Xunit;
 using FluentAssertions;
 using FluentValidation;
 using FluentValidation.Results;
+using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
+using ValidationErrorResponse = DynamoDBProcessor.Models.ValidationErrorResponse;
+using ErrorResponse = DynamoDBProcessor.Models.ErrorResponse;
 
 namespace DynamoDBProcessor.Tests.Controllers;
 

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Retry;
 using QueryRequest = DynamoDBProcessor.Models.QueryRequest;
+using DynamoDBProcessor.Exceptions;
 
 namespace DynamoDBProcessor.Services;
 
@@ -53,10 +54,10 @@ public class QueryExecutor : IQueryExecutor
                 onRetry: (exception, timeSpan, retryCount, context) =>
                 {
                     _logger.LogWarning(
-                        exception,
-                        "Retry {RetryCount} after {Delay}ms for throttled query",
+                        "Retry {RetryCount} after {Delay}ms for throttled query. Exception: {Exception}",
                         retryCount,
-                        timeSpan.TotalMilliseconds);
+                        timeSpan.TotalMilliseconds,
+                        exception.Exception?.Message);
                     _metrics.RecordCountAsync("QueryThrottledRetry", 1);
                 });
     }
